@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 
+// __dirname works here because Vite transpiles its config with esbuild
 const STATE_FILE = path.resolve(__dirname, 'state/office-snapshot.json')
 const LINEAR_BRIDGE = '/Users/fwartner/.openclaw/workspace/scripts/create_linear_task_and_dispatch.py'
 
@@ -63,6 +64,12 @@ function runLinearBridge(input: {
   })
 }
 
+let writeLock = Promise.resolve()
+function withLock(fn: () => void) {
+  writeLock = writeLock.then(fn, fn)
+  return writeLock
+}
+
 function officeApiPlugin(): Plugin {
   return {
     name: 'office-api',
@@ -71,9 +78,11 @@ function officeApiPlugin(): Plugin {
         // GET /api/office/snapshot — return current state file
         if (req.method === 'GET' && req.url === '/api/office/snapshot') {
           try {
-            const data = fs.readFileSync(STATE_FILE, 'utf-8')
+            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+            if (!state.assignments) state.assignments = []
+            if (!state.activity) state.activity = []
             res.setHeader('Content-Type', 'application/json')
-            res.end(data)
+            res.end(JSON.stringify(state))
           } catch {
             res.statusCode = 500
             res.end(JSON.stringify({ error: 'State file not found' }))
@@ -102,18 +111,20 @@ function officeApiPlugin(): Plugin {
               res.end(JSON.stringify({ error: `Invalid presence value. Must be one of: ${VALID_PRESENCE.join(', ')}` }))
               return
             }
-            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
-            const agent = state.agents.find((a: { id: string }) => a.id === agentMatch[1])
-            if (!agent) {
-              res.statusCode = 404
-              res.end(JSON.stringify({ error: 'Agent not found' }))
-              return
-            }
-            for (const [k, v] of Object.entries(patch)) agent[k] = v
-            state.lastUpdatedAt = new Date().toISOString()
-            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ ok: true, agent }))
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              const agent = state.agents.find((a: { id: string }) => a.id === agentMatch[1])
+              if (!agent) {
+                res.statusCode = 404
+                res.end(JSON.stringify({ error: 'Agent not found' }))
+                return
+              }
+              for (const [k, v] of Object.entries(patch)) agent[k] = v
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true, agent }))
+            })
           } catch (err) {
             res.statusCode = 400
             res.end(JSON.stringify({ error: String(err) }))
@@ -131,25 +142,27 @@ function officeApiPlugin(): Plugin {
               res.end(JSON.stringify({ error: 'Body must be a JSON object' }))
               return
             }
-            const validStatuses = ['queued', 'routed', 'active']
+            const validStatuses = ['queued', 'routed', 'active', 'done', 'blocked']
             if (!raw.status || !validStatuses.includes(raw.status as string)) {
               res.statusCode = 400
               res.end(JSON.stringify({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` }))
               return
             }
-            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
-            if (!state.assignments) state.assignments = []
-            const assignment = state.assignments.find((a: { id: string }) => a.id === assignMatch[1])
-            if (!assignment) {
-              res.statusCode = 404
-              res.end(JSON.stringify({ error: 'Assignment not found' }))
-              return
-            }
-            assignment.status = raw.status
-            state.lastUpdatedAt = new Date().toISOString()
-            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ ok: true, assignment }))
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              if (!state.assignments) state.assignments = []
+              const assignment = state.assignments.find((a: { id: string }) => a.id === assignMatch[1])
+              if (!assignment) {
+                res.statusCode = 404
+                res.end(JSON.stringify({ error: 'Assignment not found' }))
+                return
+              }
+              assignment.status = raw.status
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true, assignment }))
+            })
           } catch (err) {
             res.statusCode = 400
             res.end(JSON.stringify({ error: String(err) }))
@@ -170,6 +183,18 @@ function officeApiPlugin(): Plugin {
             if (missing.length > 0) {
               res.statusCode = 400
               res.end(JSON.stringify({ error: `Missing required fields: ${missing.join(', ')}` }))
+              return
+            }
+            const VALID_ROUTING = ['agent_runtime', 'work_tracker', 'both']
+            const VALID_PRIORITY = ['low', 'medium', 'high']
+            if (!VALID_ROUTING.includes(input.routingTarget)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `Invalid routingTarget. Must be: ${VALID_ROUTING.join(', ')}` }))
+              return
+            }
+            if (!VALID_PRIORITY.includes(input.priority)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `Invalid priority. Must be: ${VALID_PRIORITY.join(', ')}` }))
               return
             }
             const result = await runLinearBridge({
@@ -197,20 +222,22 @@ function officeApiPlugin(): Plugin {
               res.end(JSON.stringify({ error: 'Body must be a JSON object' }))
               return
             }
-            const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
-            if (!state.activity) state.activity = []
-            state.activity.unshift({
-              id: `act-${Date.now()}`,
-              kind: String(entry.kind ?? 'system'),
-              text: String(entry.text ?? ''),
-              agentId: entry.agentId ? String(entry.agentId) : undefined,
-              createdAt: new Date().toISOString()
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              if (!state.activity) state.activity = []
+              state.activity.unshift({
+                id: `act-${Date.now()}`,
+                kind: String(entry.kind ?? 'system'),
+                text: String(entry.text ?? ''),
+                agentId: entry.agentId ? String(entry.agentId) : undefined,
+                createdAt: new Date().toISOString()
+              })
+              state.activity = state.activity.slice(0, 100)
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true }))
             })
-            state.activity = state.activity.slice(0, 100)
-            state.lastUpdatedAt = new Date().toISOString()
-            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
-            res.setHeader('Content-Type', 'application/json')
-            res.end(JSON.stringify({ ok: true }))
           } catch (err) {
             res.statusCode = 400
             res.end(JSON.stringify({ error: String(err) }))

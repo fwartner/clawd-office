@@ -101,6 +101,12 @@ function json(res, status, data) {
 function readState() { return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8')) }
 function writeState(state) { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)) }
 
+let writeLock = Promise.resolve()
+function withLock(fn) {
+  writeLock = writeLock.then(fn, fn)
+  return writeLock
+}
+
 function sqlString(value) {
   if (value == null) return 'NULL'
   return `'${String(value).replace(/'/g, "''")}'`
@@ -319,13 +325,22 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === '/api/office/snapshot' && req.method === 'GET') {
     try {
+      let state
       if (await postgresAvailable()) {
-        json(res, 200, await getSnapshotFromPostgres())
+        state = await getSnapshotFromPostgres()
       } else {
-        json(res, 200, readState())
+        state = readState()
       }
+      if (!state.assignments) state.assignments = []
+      if (!state.activity) state.activity = []
+      json(res, 200, state)
     } catch {
-      try { json(res, 200, readState()) } catch { json(res, 500, { error: 'Office state unavailable' }) }
+      try {
+        const state = readState()
+        if (!state.assignments) state.assignments = []
+        if (!state.activity) state.activity = []
+        json(res, 200, state)
+      } catch { json(res, 500, { error: 'Office state unavailable' }) }
     }
     return
   }
@@ -348,13 +363,15 @@ const server = http.createServer(async (req, res) => {
         await patchAgentInPostgres(agentMatch[1], patch)
         json(res, 200, { ok: true, source: 'postgres' })
       } else {
-        const state = readState()
-        const agent = state.agents.find(a => a.id === agentMatch[1])
-        if (!agent) { json(res, 404, { error: 'Not found' }); return }
-        for (const [k, v] of Object.entries(patch)) agent[k] = v
-        state.lastUpdatedAt = new Date().toISOString()
-        writeState(state)
-        json(res, 200, { ok: true, agent, source: 'file' })
+        await withLock(() => {
+          const state = readState()
+          const agent = state.agents.find(a => a.id === agentMatch[1])
+          if (!agent) { json(res, 404, { error: 'Not found' }); return }
+          for (const [k, v] of Object.entries(patch)) agent[k] = v
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 200, { ok: true, agent, source: 'file' })
+        })
       }
     } catch (e) { json(res, 400, { error: String(e) }) }
     return
@@ -374,14 +391,16 @@ const server = http.createServer(async (req, res) => {
         await updateAssignmentStatusInPostgres(assignPatchMatch[1], raw.status)
         json(res, 200, { ok: true, source: 'postgres' })
       } else {
-        const state = readState()
-        if (!state.assignments) state.assignments = []
-        const assignment = state.assignments.find(a => a.id === assignPatchMatch[1])
-        if (!assignment) { json(res, 404, { error: 'Assignment not found' }); return }
-        assignment.status = raw.status
-        state.lastUpdatedAt = new Date().toISOString()
-        writeState(state)
-        json(res, 200, { ok: true, assignment, source: 'file' })
+        await withLock(() => {
+          const state = readState()
+          if (!state.assignments) state.assignments = []
+          const assignment = state.assignments.find(a => a.id === assignPatchMatch[1])
+          if (!assignment) { json(res, 404, { error: 'Assignment not found' }); return }
+          assignment.status = raw.status
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 200, { ok: true, assignment, source: 'file' })
+        })
       }
     } catch (e) { json(res, 400, { error: String(e) }) }
     return
@@ -396,6 +415,14 @@ const server = http.createServer(async (req, res) => {
       const missing = ['targetAgentId', 'taskTitle', 'priority', 'routingTarget'].filter(f => !input[f])
       if (missing.length > 0) {
         json(res, 400, { error: `Missing required fields: ${missing.join(', ')}` }); return
+      }
+      const VALID_ROUTING = ['agent_runtime', 'work_tracker', 'both']
+      const VALID_PRIORITY = ['low', 'medium', 'high']
+      if (!VALID_ROUTING.includes(input.routingTarget)) {
+        json(res, 400, { error: `Invalid routingTarget. Must be: ${VALID_ROUTING.join(', ')}` }); return
+      }
+      if (!VALID_PRIORITY.includes(input.priority)) {
+        json(res, 400, { error: `Invalid priority. Must be: ${VALID_PRIORITY.join(', ')}` }); return
       }
       const persisted = await createAssignmentInPostgres(input)
       const result = await runLinearBridge({
@@ -420,19 +447,21 @@ const server = http.createServer(async (req, res) => {
         await appendActivityInPostgres(entry)
         json(res, 200, { ok: true, source: 'postgres' })
       } else {
-        const state = readState()
-        if (!state.activity) state.activity = []
-        state.activity.unshift({
-          id: `act-${Date.now()}`,
-          kind: String(entry.kind ?? 'system'),
-          text: String(entry.text ?? ''),
-          agentId: entry.agentId ? String(entry.agentId) : undefined,
-          createdAt: new Date().toISOString()
+        await withLock(() => {
+          const state = readState()
+          if (!state.activity) state.activity = []
+          state.activity.unshift({
+            id: `act-${Date.now()}`,
+            kind: String(entry.kind ?? 'system'),
+            text: String(entry.text ?? ''),
+            agentId: entry.agentId ? String(entry.agentId) : undefined,
+            createdAt: new Date().toISOString()
+          })
+          state.activity = state.activity.slice(0, 100)
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 200, { ok: true, source: 'file' })
         })
-        state.activity = state.activity.slice(0, 100)
-        state.lastUpdatedAt = new Date().toISOString()
-        writeState(state)
-        json(res, 200, { ok: true, source: 'file' })
       }
     } catch (e) { json(res, 400, { error: String(e) }) }
     return
@@ -441,7 +470,7 @@ const server = http.createServer(async (req, res) => {
   let filePath = path.join(__dirname, url.pathname)
   if (url.pathname.startsWith('/assets/') && isSafePath(filePath) && fs.existsSync(filePath)) {
     const ext = path.extname(filePath)
-    res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' })
+    res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': 'public, max-age=86400', 'Access-Control-Allow-Origin': '*' })
     fs.createReadStream(filePath).pipe(res)
     return
   }
@@ -449,14 +478,14 @@ const server = http.createServer(async (req, res) => {
   filePath = path.join(DIST, url.pathname === '/' ? 'index.html' : url.pathname)
   if (isSafePath(filePath) && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
     const ext = path.extname(filePath)
-    res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000' })
+    res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000', 'Access-Control-Allow-Origin': '*' })
     fs.createReadStream(filePath).pipe(res)
     return
   }
 
   const index = path.join(DIST, 'index.html')
   if (fs.existsSync(index)) {
-    res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' })
+    res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache', 'Access-Control-Allow-Origin': '*' })
     fs.createReadStream(index).pipe(res)
     return
   }

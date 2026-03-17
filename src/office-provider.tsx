@@ -55,7 +55,8 @@ function isWithinWorkday(tz: string) {
   return ok && t >= 540 && t < 1020
 }
 
-function getEffectivePresence(state: PresenceState, _within: boolean): PresenceState {
+function getEffectivePresence(state: PresenceState, within: boolean): PresenceState {
+  if (!within && state !== 'off_hours') return 'off_hours'
   return state
 }
 
@@ -129,6 +130,11 @@ function mergeAssignments(current: AssignmentRecord[], incoming: AssignmentRecor
 
 const BASE_POLL_MS = 4000
 const MAX_POLL_MS = 30000
+const TASK_PICKUP_DELAY_MS  = 3_000   // queued → routed
+const TASK_ACTIVE_DELAY_MS  = 8_000   // routed → active
+const TASK_PROCESS_INTERVAL = 2_000   // check interval
+const MAX_ASSIGNMENTS       = 25
+const MAX_ACTIVITY_ITEMS    = 50
 
 export function OfficeProvider({ children }: { children: ReactNode }) {
   const [rawAgents, setRawAgents] = useState<AgentCard[]>(seedAgents)
@@ -234,12 +240,12 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
       agentId: entry.agentId,
       createdAt: new Date().toISOString(),
     }
-    setActivity(current => [item, ...current].slice(0, 50))
+    setActivity(current => [item, ...current].slice(0, MAX_ACTIVITY_ITEMS))
     fetch('/api/office/activity', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item),
-    }).catch(() => {})
+    }).catch(err => { if (import.meta.env.DEV) console.warn('[office]', err) })
   }
 
   function patchAgent(agentId: string, patch: { presence?: PresenceState; focus?: string }) {
@@ -250,7 +256,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch),
-    }).catch(() => {})
+    }).catch(err => { if (import.meta.env.DEV) console.warn('[office]', err) })
   }
 
   function patchAssignmentOnServer(assignmentId: string, status: string) {
@@ -258,7 +264,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
-    }).catch(() => {})
+    }).catch(err => { if (import.meta.env.DEV) console.warn('[office]', err) })
   }
 
   // ── Task processing: progress assignments through their lifecycle ──
@@ -272,7 +278,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
           const age = Date.now() - new Date(a.createdAt).getTime()
 
           // queued → routed (agent picks up the task, ~3s)
-          if (a.status === 'queued' && age > 3_000) {
+          if (a.status === 'queued' && age > TASK_PICKUP_DELAY_MS) {
             const key = `${a.id}:routed`
             if (!processedTransitions.current.has(key)) {
               processedTransitions.current.add(key)
@@ -286,7 +292,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
           }
 
           // routed → active (agent begins work, ~8s)
-          if (a.status === 'routed' && age > 8_000) {
+          if (a.status === 'routed' && age > TASK_ACTIVE_DELAY_MS) {
             const key = `${a.id}:active`
             if (!processedTransitions.current.has(key)) {
               processedTransitions.current.add(key)
@@ -302,7 +308,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
         })
         return changed ? updated : current
       })
-    }, 2000)
+    }, TASK_PROCESS_INTERVAL)
     return () => clearInterval(timer)
   }, [rawAgents])
 
@@ -327,7 +333,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
       createdAt: now,
       source: 'office_ui'
     }
-    setAssignments(current => [assignment, ...current].slice(0, 25))
+    setAssignments(current => [assignment, ...current].slice(0, MAX_ASSIGNMENTS))
 
     addActivity({
       kind: 'assignment',
