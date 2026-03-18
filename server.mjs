@@ -379,7 +379,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true, agent, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling PATCH /api/office/agent/:id', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
@@ -408,7 +411,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true, assignment, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling PATCH /api/office/assignment/:id', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
@@ -445,7 +451,10 @@ const server = http.createServer(async (req, res) => {
         origin: 'office_ui'
       })
       json(res, 200, { ok: true, persisted, result, source: 'postgres' })
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling POST /api/office/assign', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
@@ -506,7 +515,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 201, { ok: true, id: input.id, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling POST /api/office/agent', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
@@ -573,7 +585,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true, agent, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling PUT /api/office/agent/:id', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
@@ -605,7 +620,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling DELETE /api/office/agent/:id', e)
+      json(res, 400, { error: 'Internal error' })
+    }
     return
   }
 
@@ -635,7 +653,10 @@ const server = http.createServer(async (req, res) => {
           json(res, 200, { ok: true, source: 'file' })
         })
       }
-    } catch (e) { json(res, 400, { error: String(e) }) }
+    } catch (e) {
+      console.error('Error handling POST /api/office/activity', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
     return
   }
 
