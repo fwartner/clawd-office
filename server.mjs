@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Minimal production server for the OpenClaw Virtual Office.
+ * Minimal production server for Clawd Office.
  * Serves the built static files + office API endpoints.
  *
  * Primary backend: Postgres (`agent_memory`)
@@ -667,7 +667,7 @@ const server = http.createServer(async (req, res) => {
 })
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`OpenClaw Virtual Office server running at http://0.0.0.0:${PORT}`)
+  console.log(`Clawd Office server running at http://0.0.0.0:${PORT}`)
   console.log(`Primary backend: Postgres (${DB_NAME})`)
   console.log(`Fallback state file: ${STATE_FILE}`)
 })

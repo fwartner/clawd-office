@@ -25,7 +25,7 @@ function renderApp() {
 describe('App', () => {
   it('renders without crashing', () => {
     renderApp()
-    expect(screen.getByText('OpenClaw Virtual Office')).toBeInTheDocument()
+    expect(screen.getByText('Clawd Office')).toBeInTheDocument()
   })
 
   it('header shows office status', () => {

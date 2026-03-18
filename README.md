@@ -2,6 +2,10 @@
 
 A pixel-art virtual office for AI agent teams. Agents have live presence states, sit in themed rooms, and can be created, edited, assigned tasks, and deleted — all rendered in a retro-styled shared workspace.
 
+> [!WARNING]
+> **Early Development** — This project is under active development and may not work as expected.
+> APIs, configuration, and features may change without notice. Use at your own risk.
+
 [![CI](https://github.com/fwartner/clawd-office/actions/workflows/ci.yml/badge.svg)](https://github.com/fwartner/clawd-office/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
 ![React](https://img.shields.io/badge/React-18-61dafb)
@@ -53,6 +57,27 @@ npm run dev
 npm run setup          # re-run the wizard interactively
 npm run setup:force    # re-run even if already completed
 npm run setup:auto     # accept all defaults (non-interactive, CI-friendly)
+```
+
+## Deploy with Claude Code
+
+Paste the following prompt into [Claude Code](https://claude.ai/claude-code) to clone, set up, and run the project:
+
+```
+Clone https://github.com/fwartner/clawd-office.git, run npm install (which triggers
+the setup wizard), then start the dev server with npm run dev. Open the URL it prints
+in my browser. If Postgres is not available, choose the JSON file backend when the
+wizard asks.
+```
+
+## Deploy with OpenClaw
+
+If you're running an [OpenClaw](https://github.com/openclaw) agent swarm, add this to your agent's task queue:
+
+```
+Clone https://github.com/fwartner/clawd-office.git into the workspace. Run npm install
+with --yes flag (npm run setup:auto) to accept all defaults non-interactively. Then run
+npm run serve:build to build and start the production server. Report back the URL.
 ```
 
 ## Configuration
@@ -170,3 +195,8 @@ See [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
 ## License
 
 [MIT](LICENSE)
+
+## Maintainer
+
+**Florian Wartner** — [Pixel & Process](https://pixelandprocess.de)
+Email: [florian@wartner.io](mailto:florian@wartner.io)

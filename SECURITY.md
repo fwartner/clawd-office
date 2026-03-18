@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly:
+If you discover a security vulnerability, please report it responsibly to the maintainer, **Florian Wartner** ([Pixel & Process](https://pixelandprocess.de)):
 
 1. **Do not** open a public issue
 2. Email [florian@wartner.io](mailto:florian@wartner.io) with details

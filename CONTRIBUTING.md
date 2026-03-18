@@ -61,3 +61,8 @@ Use the [bug report template](https://github.com/fwartner/clawd-office/issues/ne
 ## Suggesting Features
 
 Use the [feature request template](https://github.com/fwartner/clawd-office/issues/new?template=feature_request.yml).
+
+## Maintainer
+
+**Florian Wartner** — [Pixel & Process](https://pixelandprocess.de)
+Email: [florian@wartner.io](mailto:florian@wartner.io)

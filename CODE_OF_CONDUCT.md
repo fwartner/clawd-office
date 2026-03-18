@@ -32,7 +32,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainers at [florian@wartner.io](mailto:florian@wartner.io). All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainer, **Florian Wartner** ([Pixel & Process](https://pixelandprocess.de)), at [florian@wartner.io](mailto:florian@wartner.io). All complaints will be reviewed and investigated promptly and fairly.
 
 ## Attribution
 

@@ -529,7 +529,7 @@ export function App() {
       {/* Header */}
       <header className="office-header">
         <div className="header-left">
-          <h1 className="office-title">OpenClaw Virtual Office</h1>
+          <h1 className="office-title">Clawd Office</h1>
           <span className={`office-status ${withinWorkday ? 'on' : 'off'}`}>
             {withinWorkday ? 'Open' : 'Closed'}
           </span>
@@ -553,7 +553,7 @@ export function App() {
           </div>
           <div className="map-scroll" ref={mapScrollRef}>
             <div className="map-container" style={{ width: mapW, height: mapH }}>
-              <img src={OFFICE_MAP} alt="OpenClaw pixel-art office" className="map-bg" draggable={false} />
+              <img src={OFFICE_MAP} alt="Clawd Office pixel-art map" className="map-bg" draggable={false} />
               {rooms.map(room => (
                 <RoomOverlay
                   key={room.id}

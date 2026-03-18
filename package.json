@@ -4,6 +4,7 @@
   "description": "Pixel-art virtual office for AI agent teams — live presence, room navigation, agent CRUD, and task assignment in a retro-styled shared workspace.",
   "type": "module",
   "license": "MIT",
+  "author": "Florian Wartner <florian@wartner.io> (https://pixelandprocess.de)",
   "scripts": {
     "setup": "node setup.mjs",
     "setup:force": "node setup.mjs --force",
