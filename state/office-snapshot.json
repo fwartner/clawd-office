@@ -1,5 +1,17 @@
 {
-  "agents": [],
+  "agents": [
+    {
+      "id": "polly",
+      "name": "Polly",
+      "role": "CEO",
+      "team": "Management",
+      "roomId": "planning-studio",
+      "presence": "available",
+      "focus": "",
+      "criticalTask": true,
+      "collaborationMode": ""
+    }
+  ],
   "rooms": [
     {
       "id": "planning-studio",
@@ -67,7 +79,12 @@
       }
     }
   ],
-  "agentSeats": {},
+  "agentSeats": {
+    "polly": {
+      "xPct": 50,
+      "yPct": 50
+    }
+  },
   "workdayPolicy": {
     "timezone": "Europe/Berlin",
     "days": "Monday-Friday",
@@ -76,6 +93,12 @@
     "sharedPlaceRule": "The office is the shared place where all agents work together, coordinate by room, and expose their current state."
   },
   "activity": [
+    {
+      "id": "act-1773829828463",
+      "kind": "system",
+      "text": "Agent Polly created",
+      "createdAt": "2026-03-18T10:30:28.463Z"
+    },
     {
       "id": "act-1773829447469",
       "kind": "system",
@@ -187,5 +210,5 @@
     }
   },
   "source": "file",
-  "lastUpdatedAt": "2026-03-18T10:24:07.472Z"
+  "lastUpdatedAt": "2026-03-18T10:30:28.466Z"
 }

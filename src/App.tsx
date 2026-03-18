@@ -471,6 +471,11 @@ export function App() {
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null)
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
   const [completingTaskId, setCompletingTaskId] = useState<string | null>(null)
+  const [sheetSnap, setSheetSnap] = useState<'collapsed' | 'half' | 'full'>('collapsed')
+  const [isDragging, setIsDragging] = useState(false)
+  const sheetRef = useRef<HTMLDivElement>(null)
+  const dragStartY = useRef(0)
+  const dragStartHeight = useRef(0)
 
   // Count of done tasks with unhandled results (not saved, not dismissed)
   const pendingResultCount = assignments.filter(a =>
@@ -560,6 +565,44 @@ export function App() {
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
+
+  // Bottom sheet drag handling
+  const handleDragStart = useCallback((e: React.PointerEvent) => {
+    setIsDragging(true)
+    dragStartY.current = e.clientY
+    dragStartHeight.current = sheetRef.current?.offsetHeight ?? 0
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }, [])
+
+  const handleDragMove = useCallback((e: React.PointerEvent) => {
+    if (!isDragging || !sheetRef.current) return
+    const delta = dragStartY.current - e.clientY
+    const newHeight = Math.max(48, Math.min(window.innerHeight * 0.9, dragStartHeight.current + delta))
+    sheetRef.current.style.height = `${newHeight}px`
+  }, [isDragging])
+
+  const handleDragEnd = useCallback(() => {
+    if (!isDragging || !sheetRef.current) return
+    setIsDragging(false)
+    const h = sheetRef.current.offsetHeight
+    const vh = window.innerHeight
+    // Snap to nearest point
+    if (h < vh * 0.15) {
+      setSheetSnap('collapsed')
+    } else if (h < vh * 0.65) {
+      setSheetSnap('half')
+    } else {
+      setSheetSnap('full')
+    }
+    sheetRef.current.style.height = ''
+  }, [isDragging])
+
+  // Auto-open sheet when selecting agent/room
+  useEffect(() => {
+    if (selectedAgentId || selectedRoomId) {
+      if (sheetSnap === 'collapsed') setSheetSnap('half')
+    }
+  }, [selectedAgentId, selectedRoomId, sheetSnap])
 
   const mapW = MAP_NATIVE_W * mapScale
   const mapH = MAP_NATIVE_H * mapScale
