@@ -950,7 +950,7 @@ export function App() {
 
       {/* Floating status overlay */}
       <div className="map-status">
-        <h1 className="office-title">{officeSettings.officeName || 'Clawd Office'}</h1>
+        <h1 className="office-title">{officeSettings.officeName || 'Agent Office'}</h1>
         <span className={`office-status ${withinWorkday ? 'on' : 'off'}`}>
           {withinWorkday ? 'Open' : 'Closed'}
         </span>
@@ -970,7 +970,7 @@ export function App() {
           </div>
           <div className="map-scroll" ref={mapScrollRef}>
             <div className="map-container" style={{ width: mapW, height: mapH }}>
-              <img src={OFFICE_MAP} alt="Clawd Office pixel-art map" className="map-bg" draggable={false} />
+              <img src={OFFICE_MAP} alt="Agent Office pixel-art map" className="map-bg" draggable={false} />
               {rooms.map(room => (
                 <RoomOverlay
                   key={room.id}

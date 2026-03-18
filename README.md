@@ -1,4 +1,4 @@
-# Clawd Office
+# Agent Office
 
 A pixel-art virtual office for AI agent teams. Agents have live presence states, sit in themed rooms, and can be created, edited, assigned tasks, and deleted — all rendered in a retro-styled shared workspace.
 
@@ -6,7 +6,7 @@ A pixel-art virtual office for AI agent teams. Agents have live presence states,
 > **Early Development** — This project is under active development and may not work as expected.
 > APIs, configuration, and features may change without notice. Use at your own risk.
 
-[![CI](https://github.com/fwartner/clawd-office/actions/workflows/ci.yml/badge.svg)](https://github.com/fwartner/clawd-office/actions/workflows/ci.yml)
+[![CI](https://github.com/fwartner/agent-office/actions/workflows/ci.yml/badge.svg)](https://github.com/fwartner/agent-office/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)
 ![React](https://img.shields.io/badge/React-18-61dafb)
 ![Vite](https://img.shields.io/badge/Vite-5-646cff)
@@ -14,7 +14,7 @@ A pixel-art virtual office for AI agent teams. Agents have live presence states,
 
 ## Screenshot
 
-![Clawd Office screenshot](assets/readme/virtual-office-screenshot.jpg)
+![Agent Office screenshot](assets/readme/virtual-office-screenshot.jpg)
 
 ## Features
 
@@ -46,8 +46,8 @@ Without this asset the map background will be missing, but the rest of the UI wi
 ## Quick Start
 
 ```bash
-git clone https://github.com/fwartner/clawd-office.git
-cd clawd-office
+git clone https://github.com/fwartner/agent-office.git
+cd agent-office
 npm install
 ```
 
@@ -77,7 +77,7 @@ npm run setup:auto     # accept all defaults (non-interactive, CI-friendly)
 Paste the following prompt into [Claude Code](https://claude.ai/claude-code) to clone, set up, and run the project:
 
 ```
-Clone https://github.com/fwartner/clawd-office.git, run npm install (which triggers
+Clone https://github.com/fwartner/agent-office.git, run npm install (which triggers
 the setup wizard), then start the dev server with npm run dev. Open the URL it prints
 in my browser. If Postgres is not available, choose the JSON file backend when the
 wizard asks.
@@ -88,7 +88,7 @@ wizard asks.
 If you're running an AI agent swarm, add this to your agent's task queue:
 
 ```
-Clone https://github.com/fwartner/clawd-office.git into the workspace. Run npm install
+Clone https://github.com/fwartner/agent-office.git into the workspace. Run npm install
 with --yes flag (npm run setup:auto) to accept all defaults non-interactively. Then run
 npm run serve:build to build and start the production server. Report back the URL.
 ```

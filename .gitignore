@@ -1,6 +1,8 @@
 node_modules/
 dist/
+dist-server/
 *.tsbuildinfo
+coverage/
 
 # OS files
 .DS_Store
@@ -28,5 +30,6 @@ assets/pixelart/Office Tileset/
 .claude/
 .openclaw/
 .superpowers/
+.cursor/
 tmp/
 .setup-done

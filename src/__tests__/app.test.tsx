@@ -69,7 +69,7 @@ describe('App — with agents (via API)', () => {
 
   it('renders without crashing', async () => {
     renderApp()
-    expect(screen.getByText('Clawd Office')).toBeInTheDocument()
+    expect(screen.getByText('Agent Office')).toBeInTheDocument()
   })
 
   it('header shows office status', () => {
@@ -119,7 +119,7 @@ describe('App — empty office (seed fallback)', () => {
 
   it('renders without crashing with empty agents', () => {
     renderApp()
-    expect(screen.getByText('Clawd Office')).toBeInTheDocument()
+    expect(screen.getByText('Agent Office')).toBeInTheDocument()
   })
 
   it('shows empty roster message', () => {

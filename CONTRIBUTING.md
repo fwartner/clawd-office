@@ -1,12 +1,12 @@
-# Contributing to Clawd Office
+# Contributing to Agent Office
 
 Thank you for your interest in contributing! Here's how to get started.
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/fwartner/clawd-office.git
-cd clawd-office
+git clone https://github.com/fwartner/agent-office.git
+cd agent-office
 npm install    # runs the setup wizard automatically
 npm run dev
 ```
@@ -56,11 +56,11 @@ Use concise, descriptive messages:
 
 ## Reporting Bugs
 
-Use the [bug report template](https://github.com/fwartner/clawd-office/issues/new?template=bug_report.yml).
+Use the [bug report template](https://github.com/fwartner/agent-office/issues/new?template=bug_report.yml).
 
 ## Suggesting Features
 
-Use the [feature request template](https://github.com/fwartner/clawd-office/issues/new?template=feature_request.yml).
+Use the [feature request template](https://github.com/fwartner/agent-office/issues/new?template=feature_request.yml).
 
 ## Maintainer
 

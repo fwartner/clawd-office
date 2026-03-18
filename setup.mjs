@@ -1,17 +1,15 @@
 #!/usr/bin/env node
 /**
- * Clawd Office — First-run setup wizard.
+ * Agent Office — First-run setup wizard.
  *
- * Walks through backend selection, database config, port, and
- * Linear integration. Writes .env, initialises state, and
- * optionally applies the Postgres schema.
+ * Walks through database backend, Telegram bot, integrations, and port.
+ * Writes .env file and initialises seed state.
  *
  * Run:  node setup.mjs          (interactive)
  *       node setup.mjs --yes    (accept all defaults, non-interactive)
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFile, execSync } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
@@ -19,21 +17,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const ENV_FILE = path.join(__dirname, '.env')
 const STATE_DIR = path.join(__dirname, 'state')
 const STATE_FILE = path.join(STATE_DIR, 'office-snapshot.json')
-const SCHEMA_FILE = path.join(__dirname, 'sql/office_state_schema.sql')
 const LOCK_FILE = path.join(__dirname, '.setup-done')
-const SEED_DATA = path.join(__dirname, 'src/data.ts')
 
 // ── Colours ─────────────────────────────────────────
 const c = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m',
-  blue: '\x1b[34m',
+  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
+  cyan: '\x1b[36m', green: '\x1b[32m', yellow: '\x1b[33m',
+  red: '\x1b[31m', magenta: '\x1b[35m', blue: '\x1b[34m',
 }
 
 const SKIP_INTERACTIVE = process.argv.includes('--yes') || process.argv.includes('-y') || !!process.env.CI
@@ -86,7 +76,7 @@ function banner() {
   console.log()
   console.log(`  ${c.cyan}${c.bold}┌──────────────────────────────────────────┐${c.reset}`)
   console.log(`  ${c.cyan}${c.bold}│                                          │${c.reset}`)
-  console.log(`  ${c.cyan}${c.bold}│${c.reset}     ${c.magenta}${c.bold}🏢  Clawd Office Setup Wizard${c.reset}       ${c.cyan}${c.bold}│${c.reset}`)
+  console.log(`  ${c.cyan}${c.bold}│${c.reset}     ${c.magenta}${c.bold}🏢  Agent Office Setup Wizard${c.reset}       ${c.cyan}${c.bold}│${c.reset}`)
   console.log(`  ${c.cyan}${c.bold}│${c.reset}                                          ${c.cyan}${c.bold}│${c.reset}`)
   console.log(`  ${c.cyan}${c.bold}│${c.reset}  ${c.dim}Pixel-art virtual office for AI agents${c.reset}   ${c.cyan}${c.bold}│${c.reset}`)
   console.log(`  ${c.cyan}${c.bold}│                                          │${c.reset}`)
@@ -94,35 +84,8 @@ function banner() {
   console.log()
 }
 
-// ── Detect psql ─────────────────────────────────────
-function findPsql() {
-  try {
-    const result = execSync('which psql 2>/dev/null || where psql 2>NUL', { encoding: 'utf-8' }).trim()
-    return result.split('\n')[0] || null
-  } catch {
-    return null
-  }
-}
-
-function testPsqlConnection(psqlPath, dbName) {
-  return new Promise(resolve => {
-    execFile(psqlPath, [dbName, '-X', '-t', '-A', '-c', 'SELECT 1;'], { timeout: 5000 }, (error) => {
-      resolve(!error)
-    })
-  })
-}
-
-function applySchema(psqlPath, dbName) {
-  return new Promise((resolve, reject) => {
-    execFile(psqlPath, [dbName, '-X', '-f', SCHEMA_FILE], { timeout: 30000 }, (error, stdout, stderr) => {
-      if (error) reject(new Error(stderr || error.message))
-      else resolve(stdout)
-    })
-  })
-}
-
 // ── Generate seed snapshot ──────────────────────────
-function generateSeedSnapshot() {
+function generateSeedSnapshot(timezone) {
   return {
     agents: [],
     rooms: [
@@ -134,20 +97,16 @@ function generateSeedSnapshot() {
     ],
     agentSeats: {},
     settings: {
-      officeName: 'Clawd Office',
+      officeName: 'Agent Office',
       theme: {
         presenceColors: {
-          off_hours: '#8792a8',
-          available: '#95d8ff',
-          active: '#78f7b5',
-          in_meeting: '#c39bff',
-          paused: '#ffd479',
-          blocked: '#ff8b8b'
+          off_hours: '#8792a8', available: '#95d8ff', active: '#78f7b5',
+          in_meeting: '#c39bff', paused: '#ffd479', blocked: '#ff8b8b'
         }
       }
     },
     workdayPolicy: {
-      timezone: 'Europe/Berlin',
+      timezone: timezone || 'Europe/Berlin',
       days: 'Monday-Friday',
       hours: '09:00-17:00',
       pauseRule: 'After non-critical tasks, agents should move to paused to save tokens until the next meaningful task arrives.',
@@ -189,154 +148,124 @@ async function main() {
 
   initRL()
 
-  const config = {
-    backend: 'file',
-    psqlPath: '',
-    dbName: 'agent_memory',
-    port: 4173,
-    linearBridge: '',
-    timezone: 'Europe/Berlin',
-  }
+  const envVars = {}
 
-  // ── Step 1: Backend ─────────────────────────────
-  step('Backend selection')
+  // ── Step 1: Database backend ──────────────────────
+  step('Database backend')
 
-  const psqlPath = findPsql()
-  if (psqlPath) {
-    console.log(`  ${c.green}✓${c.reset} Found psql at: ${c.dim}${psqlPath}${c.reset}`)
+  console.log(`  ${c.dim}SQLite requires zero configuration. PostgreSQL needs a connection URL.${c.reset}`)
+
+  const dbChoice = await select('Choose your database:', [
+    { value: 'sqlite', label: 'SQLite', desc: 'zero-config, single file (recommended)' },
+    { value: 'postgres', label: 'PostgreSQL', desc: 'for multi-instance or existing Postgres' },
+  ], 0)
+
+  if (dbChoice.value === 'postgres') {
+    const dbUrl = await ask('PostgreSQL connection URL', 'postgres://localhost:5432/agent_office')
+    envVars.DATABASE_URL = dbUrl
+    console.log(`  ${c.green}✓${c.reset} Will use PostgreSQL: ${c.dim}${dbUrl}${c.reset}`)
   } else {
-    console.log(`  ${c.yellow}!${c.reset} psql not found in PATH`)
+    console.log(`  ${c.green}✓${c.reset} Using SQLite (state/agent-office.db)`)
   }
 
-  const backendChoice = await select('Choose your data backend:', [
-    { value: 'file', label: 'JSON file', desc: 'simple, no database needed' },
-    { value: 'postgres', label: 'PostgreSQL', desc: 'full database with persistence' },
-  ], psqlPath ? 1 : 0)
-  config.backend = backendChoice.value
+  // ── Step 2: Telegram bot ──────────────────────────
+  step('Telegram bot (optional)')
 
-  if (config.backend === 'postgres') {
-    config.psqlPath = await ask('Path to psql binary', psqlPath || 'psql')
-    config.dbName = await ask('Database name', 'agent_memory')
+  console.log(`  ${c.dim}Get a bot token from @BotFather on Telegram.${c.reset}`)
+  console.log(`  ${c.dim}Skip if you don't want Telegram integration.${c.reset}`)
 
-    console.log()
-    console.log(`  ${c.dim}Testing connection...${c.reset}`)
-    const connected = await testPsqlConnection(config.psqlPath, config.dbName)
-
-    if (connected) {
-      console.log(`  ${c.green}✓${c.reset} Connected to ${c.bold}${config.dbName}${c.reset}`)
-
-      if (fs.existsSync(SCHEMA_FILE)) {
-        const applyIt = await confirm('Apply database schema?', true)
-        if (applyIt) {
-          try {
-            await applySchema(config.psqlPath, config.dbName)
-            console.log(`  ${c.green}✓${c.reset} Schema applied successfully`)
-          } catch (err) {
-            console.log(`  ${c.red}✗${c.reset} Schema error: ${err.message}`)
-            console.log(`  ${c.dim}You can apply it manually: psql ${config.dbName} -f sql/office_state_schema.sql${c.reset}`)
-          }
-        }
-      }
+  const useTelegram = await confirm('Enable Telegram bot?', false)
+  if (useTelegram) {
+    const token = await ask('Bot token from @BotFather', '')
+    if (token) {
+      envVars.TELEGRAM_BOT_TOKEN = token
+      console.log(`  ${c.green}✓${c.reset} Telegram bot configured`)
     } else {
-      console.log(`  ${c.red}✗${c.reset} Could not connect to ${c.bold}${config.dbName}${c.reset}`)
-      console.log(`  ${c.yellow}!${c.reset} Make sure the database exists and psql can connect.`)
-      const fallback = await confirm('Continue with JSON file backend instead?', true)
-      if (fallback) {
-        config.backend = 'file'
-      } else {
-        console.log()
-        console.log(`  ${c.dim}Fix the connection and re-run: node setup.mjs --force${c.reset}`)
-        rl.close()
-        process.exit(1)
-      }
+      console.log(`  ${c.yellow}!${c.reset} No token provided — bot disabled`)
     }
   }
 
-  // ── Step 2: Server port ─────────────────────────
+  // ── Step 3: Integrations ──────────────────────────
+  step('Integrations (optional)')
+
+  console.log(`  ${c.dim}Connect to external services. All optional — skip to use later.${c.reset}`)
+
+  const useSlack = await confirm('Enable Slack notifications?', false)
+  if (useSlack) {
+    const url = await ask('Slack Incoming Webhook URL', '')
+    if (url) envVars.SLACK_WEBHOOK_URL = url
+  }
+
+  const useGitHub = await confirm('Enable GitHub integration?', false)
+  if (useGitHub) {
+    const token = await ask('GitHub token (for outbound API calls)', '')
+    if (token) envVars.GITHUB_TOKEN = token
+  }
+
+  const useLinear = await confirm('Enable Linear integration?', false)
+  if (useLinear) {
+    const key = await ask('Linear API key', '')
+    if (key) envVars.LINEAR_API_KEY = key
+    const teamId = await ask('Linear team ID', '')
+    if (teamId) envVars.LINEAR_TEAM_ID = teamId
+  }
+
+  // ── Step 4: Server config ─────────────────────────
   step('Server configuration')
 
   const portStr = await ask('Server port', '4173')
-  config.port = parseInt(portStr) || 4173
-
-  // ── Step 3: Timezone ────────────────────────────
-  step('Office timezone')
+  const port = parseInt(portStr) || 4173
+  if (port !== 4173) envVars.PORT = String(port)
 
   const tzGuess = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Europe/Berlin'
   console.log(`  ${c.dim}Detected system timezone: ${tzGuess}${c.reset}`)
-  config.timezone = await ask('Office timezone', tzGuess)
+  const timezone = await ask('Office timezone', tzGuess)
 
-  // ── Step 4: Linear integration ──────────────────
-  step('Linear integration (optional)')
-
-  console.log(`  ${c.dim}The Linear bridge dispatches tasks to Linear when assignments are created.${c.reset}`)
-  console.log(`  ${c.dim}Skip this if you don't use Linear.${c.reset}`)
-  const useLinear = await confirm('Enable Linear integration?', false)
-  if (useLinear) {
-    config.linearBridge = await ask('Path to Linear bridge script', '')
-    if (config.linearBridge && !fs.existsSync(config.linearBridge)) {
-      console.log(`  ${c.yellow}!${c.reset} File not found: ${config.linearBridge}`)
-      console.log(`  ${c.dim}You can set LINEAR_BRIDGE_PATH in .env later.${c.reset}`)
-    }
-  }
-
-  // ── Step 5: Write config & initialise ───────────
+  // ── Step 5: Write config & initialise ─────────────
   step('Finalising')
 
   // Write .env
   const envLines = [
-    '# Clawd Office configuration',
+    '# Agent Office configuration',
     `# Generated by setup wizard on ${new Date().toISOString()}`,
     '',
   ]
-  if (config.backend === 'postgres') {
-    envLines.push(`PSQL_PATH=${config.psqlPath}`)
-    envLines.push(`POSTGRES_DB=${config.dbName}`)
-  }
-  if (config.port !== 4173) {
-    envLines.push(`PORT=${config.port}`)
-  }
-  if (config.linearBridge) {
-    envLines.push(`LINEAR_BRIDGE_PATH=${config.linearBridge}`)
-  }
-  if (config.timezone !== 'Europe/Berlin') {
-    envLines.push(`OFFICE_TIMEZONE=${config.timezone}`)
+  for (const [key, value] of Object.entries(envVars)) {
+    envLines.push(`${key}=${value}`)
   }
   envLines.push('')
 
   fs.writeFileSync(ENV_FILE, envLines.join('\n'))
-  console.log(`  ${c.green}✓${c.reset} Written ${c.bold}.env${c.reset}`)
+  console.log(`  ${c.green}✓${c.reset} Written ${c.bold}.env${c.reset} (${Object.keys(envVars).length} variables)`)
 
   // Ensure state directory exists
   if (!fs.existsSync(STATE_DIR)) {
     fs.mkdirSync(STATE_DIR, { recursive: true })
   }
 
-  // Create seed state file if using file backend and none exists
-  if (config.backend === 'file' || !fs.existsSync(STATE_FILE)) {
-    if (!fs.existsSync(STATE_FILE)) {
-      const seed = generateSeedSnapshot()
-      seed.workdayPolicy.timezone = config.timezone
-      fs.writeFileSync(STATE_FILE, JSON.stringify(seed, null, 2))
-      console.log(`  ${c.green}✓${c.reset} Created ${c.bold}state/office-snapshot.json${c.reset} with seed data`)
-    } else {
-      // Update timezone in existing state
-      try {
-        const existing = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
-        if (existing.workdayPolicy && config.timezone !== existing.workdayPolicy.timezone) {
-          existing.workdayPolicy.timezone = config.timezone
-          fs.writeFileSync(STATE_FILE, JSON.stringify(existing, null, 2))
-          console.log(`  ${c.green}✓${c.reset} Updated timezone in existing state file`)
-        } else {
-          console.log(`  ${c.green}✓${c.reset} State file already exists`)
-        }
-      } catch {
-        console.log(`  ${c.yellow}!${c.reset} Could not update existing state file`)
+  // Create seed state file if none exists
+  if (!fs.existsSync(STATE_FILE)) {
+    const seed = generateSeedSnapshot(timezone)
+    fs.writeFileSync(STATE_FILE, JSON.stringify(seed, null, 2))
+    console.log(`  ${c.green}✓${c.reset} Created ${c.bold}state/office-snapshot.json${c.reset} with seed data`)
+  } else {
+    // Update timezone in existing state
+    try {
+      const existing = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+      if (existing.workdayPolicy && timezone !== existing.workdayPolicy.timezone) {
+        existing.workdayPolicy.timezone = timezone
+        fs.writeFileSync(STATE_FILE, JSON.stringify(existing, null, 2))
+        console.log(`  ${c.green}✓${c.reset} Updated timezone in existing state file`)
+      } else {
+        console.log(`  ${c.green}✓${c.reset} State file already exists`)
       }
+    } catch {
+      console.log(`  ${c.yellow}!${c.reset} Could not update existing state file`)
     }
   }
 
   // Write lock file
-  fs.writeFileSync(LOCK_FILE, JSON.stringify({ completedAt: new Date().toISOString(), config }, null, 2))
+  fs.writeFileSync(LOCK_FILE, JSON.stringify({ completedAt: new Date().toISOString(), envVars: Object.keys(envVars) }, null, 2))
 
   // ── Summary ─────────────────────────────────────
   console.log()
@@ -345,12 +274,13 @@ async function main() {
   console.log(`  ${c.cyan}${c.bold}└──────────────────────────────────────────┘${c.reset}`)
   console.log()
   console.log(`  ${c.bold}Configuration:${c.reset}`)
-  console.log(`    Backend:    ${c.cyan}${config.backend === 'postgres' ? 'PostgreSQL' : 'JSON file'}${c.reset}`)
-  console.log(`    Port:       ${c.cyan}${config.port}${c.reset}`)
-  console.log(`    Timezone:   ${c.cyan}${config.timezone}${c.reset}`)
-  if (config.linearBridge) {
-    console.log(`    Linear:     ${c.cyan}${config.linearBridge}${c.reset}`)
-  }
+  console.log(`    Database:   ${c.cyan}${envVars.DATABASE_URL ? 'PostgreSQL' : 'SQLite'}${c.reset}`)
+  console.log(`    Port:       ${c.cyan}${port}${c.reset}`)
+  console.log(`    Timezone:   ${c.cyan}${timezone}${c.reset}`)
+  console.log(`    Telegram:   ${c.cyan}${envVars.TELEGRAM_BOT_TOKEN ? 'enabled' : 'disabled'}${c.reset}`)
+  if (envVars.SLACK_WEBHOOK_URL) console.log(`    Slack:      ${c.cyan}enabled${c.reset}`)
+  if (envVars.GITHUB_TOKEN) console.log(`    GitHub:     ${c.cyan}enabled${c.reset}`)
+  if (envVars.LINEAR_API_KEY) console.log(`    Linear:     ${c.cyan}enabled${c.reset}`)
   console.log()
   console.log(`  ${c.bold}Next steps:${c.reset}`)
   console.log()

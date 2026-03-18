@@ -1,0 +1,29 @@
+services:
+  agent-office:
+    build: .
+    ports:
+      - "4173:4173"
+    volumes:
+      - agent-office-data:/app/state
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
+    restart: unless-stopped
+
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: agent
+  #     POSTGRES_PASSWORD: agent
+  #     POSTGRES_DB: agent_office
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  agent-office-data:
+  # postgres-data:

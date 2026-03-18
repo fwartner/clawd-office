@@ -14,5 +14,6 @@
     "strict": true,
     "baseUrl": "."
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/db", "src/server", "src/bot", "src/__tests__/api-routes.test.ts"]
 }

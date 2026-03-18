@@ -156,7 +156,7 @@ describe('Accessibility', () => {
 
     const dialog = screen.getByRole('dialog')
     expect(dialog).toBeInTheDocument()
-    expect(dialog).toHaveAttribute('aria-label', 'Welcome to Clawd Office')
+    expect(dialog).toHaveAttribute('aria-label', 'Welcome to Agent Office')
   })
 
   it('reduced motion disables sprite animation interval', async () => {

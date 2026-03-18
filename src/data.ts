@@ -64,7 +64,7 @@ export const defaultPresenceColors: Record<PresenceState, string> = {
 }
 
 export const defaultSettings: OfficeSettings = {
-  officeName: 'Clawd Office',
+  officeName: 'Agent Office',
   theme: {
     presenceColors: { ...defaultPresenceColors }
   }

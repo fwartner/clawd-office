@@ -50,9 +50,9 @@ export function WelcomeOnboarding() {
   }
 
   return (
-    <div ref={overlayRef} className="welcome-overlay" role="dialog" aria-label="Welcome to Clawd Office">
+    <div ref={overlayRef} className="welcome-overlay" role="dialog" aria-label="Welcome to Agent Office">
       <div className="welcome-card">
-        <h2 className="welcome-title">Welcome to Clawd Office</h2>
+        <h2 className="welcome-title">Welcome to Agent Office</h2>
         <p className="welcome-subtitle">Your office is empty. Create your first agent to get started.</p>
         <form className="assign-form agent-form" onSubmit={handleSubmit}>
           <label htmlFor="welcome-agent-id" className="visually-hidden">Agent ID</label>
