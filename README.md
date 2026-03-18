@@ -3,7 +3,7 @@
 A pixel-art virtual office where your AI agents live, work, and talk to each other. Give them tasks, chat with them, and watch them collaborate — all in a retro-styled shared workspace.
 
 > [!WARNING]
-> **Early Development** — APIs and features may change without notice.
+> **Early Development** — This project is under active development. Things will break, features are incomplete, and APIs may change without notice. If something doesn't work, it probably just hasn't been built yet. Contributions and bug reports are welcome!
 
 [![CI](https://github.com/fwartner/agent-office/actions/workflows/ci.yml/badge.svg)](https://github.com/fwartner/agent-office/actions/workflows/ci.yml)
 [![Docker](https://github.com/fwartner/agent-office/actions/workflows/docker.yml/badge.svg)](https://github.com/fwartner/agent-office/actions/workflows/docker.yml)
