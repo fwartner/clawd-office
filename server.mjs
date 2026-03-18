@@ -15,14 +15,20 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, 'dist')
 const STATE_FILE = path.join(__dirname, 'state/office-snapshot.json')
-const LINEAR_BRIDGE = '/Users/fwartner/.openclaw/workspace/scripts/create_linear_task_and_dispatch.py'
-const PSQL = '/opt/homebrew/opt/postgresql@17/bin/psql'
-const DB_NAME = 'agent_memory'
+const LINEAR_BRIDGE = process.env.LINEAR_BRIDGE_PATH || path.join(__dirname, 'scripts/create_linear_task_and_dispatch.py')
+const PSQL = process.env.PSQL_PATH || 'psql'
+const DB_NAME = process.env.POSTGRES_DB || 'agent_memory'
 const PORT = Number(process.argv.includes('--port') ? process.argv[process.argv.indexOf('--port') + 1] : 4173)
 
 const MAX_BODY_SIZE = 1_048_576 // 1MB
+const MAX_TITLE_LEN = 200
+const MAX_BRIEF_LEN = 2000
+const MAX_FOCUS_LEN = 500
+const MAX_NAME_LEN = 100
+const MAX_ROLE_LEN = 200
 const VALID_PRESENCE = ['off_hours', 'available', 'active', 'in_meeting', 'paused', 'blocked']
 const AGENT_PATCH_FIELDS = ['presence', 'focus', 'roomId', 'criticalTask', 'collaborationMode']
+const AGENT_ID_RE = /^[a-z0-9-]+$/
 const ASSIGNMENT_STATUSES = ['queued', 'routed', 'active', 'done', 'blocked']
 
 const ALLOWED_ROOTS = [DIST, path.join(__dirname, 'assets')]
@@ -318,7 +324,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' })
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type' })
     res.end()
     return
   }
@@ -424,6 +430,12 @@ const server = http.createServer(async (req, res) => {
       if (!VALID_PRIORITY.includes(input.priority)) {
         json(res, 400, { error: `Invalid priority. Must be: ${VALID_PRIORITY.join(', ')}` }); return
       }
+      if (String(input.taskTitle).length > MAX_TITLE_LEN) {
+        json(res, 400, { error: 'taskTitle too long' }); return
+      }
+      if (input.taskBrief && String(input.taskBrief).length > MAX_BRIEF_LEN) {
+        json(res, 400, { error: 'taskBrief too long' }); return
+      }
       const persisted = await createAssignmentInPostgres(input)
       const result = await runLinearBridge({
         targetAgentId: String(input.targetAgentId),
@@ -433,6 +445,166 @@ const server = http.createServer(async (req, res) => {
         origin: 'office_ui'
       })
       json(res, 200, { ok: true, persisted, result, source: 'postgres' })
+    } catch (e) { json(res, 400, { error: String(e) }) }
+    return
+  }
+
+  // POST /api/office/agent — create a new agent
+  if (url.pathname === '/api/office/agent' && req.method === 'POST') {
+    try {
+      const input = await readBody(req)
+      if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        json(res, 400, { error: 'Body must be a JSON object' }); return
+      }
+      const required = ['id', 'name', 'role', 'team', 'roomId']
+      const missing = required.filter(f => !input[f])
+      if (missing.length > 0) {
+        json(res, 400, { error: `Missing required fields: ${missing.join(', ')}` }); return
+      }
+      if (!AGENT_ID_RE.test(input.id)) {
+        json(res, 400, { error: 'id must be lowercase alphanumeric with hyphens only' }); return
+      }
+      if (String(input.name).length > MAX_NAME_LEN) {
+        json(res, 400, { error: 'name too long' }); return
+      }
+      if (String(input.role).length > MAX_ROLE_LEN) {
+        json(res, 400, { error: 'role too long' }); return
+      }
+      if (input.focus && String(input.focus).length > MAX_FOCUS_LEN) {
+        json(res, 400, { error: 'focus too long' }); return
+      }
+      if (input.presence && !VALID_PRESENCE.includes(input.presence)) {
+        json(res, 400, { error: `Invalid presence. Must be one of: ${VALID_PRESENCE.join(', ')}` }); return
+      }
+      if (await postgresAvailable()) {
+        // Check uniqueness
+        const exists = await runPsql(`select count(*) from office_agents where id = ${sqlString(input.id)};`)
+        if (parseInt(exists) > 0) {
+          json(res, 409, { error: 'Agent with this id already exists' }); return
+        }
+        await runPsql(`insert into office_agents (id, name, role, team, internal_staff, office_visible) values (${sqlString(input.id)}, ${sqlString(input.name)}, ${sqlString(input.role)}, ${sqlString(input.team)}, true, true);`)
+        await runPsql(`insert into office_presence (agent_id, presence_state, effective_presence_state, critical_task, focus, collaboration_mode) values (${sqlString(input.id)}, ${sqlString(input.presence || 'available')}, ${sqlString(input.presence || 'available')}, ${sqlBool(input.criticalTask || false)}, ${sqlString(input.focus || '')}, ${sqlString(input.collaborationMode || '')});`)
+        await runPsql(`insert into office_world_entities (agent_id, room_id, anchor_x_pct, anchor_y_pct) values (${sqlString(input.id)}, ${sqlString(input.roomId)}, 50, 50);`)
+        await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'system', text: `Agent ${input.name} created`, agentId: input.id })
+        json(res, 201, { ok: true, id: input.id, source: 'postgres' })
+      } else {
+        await withLock(() => {
+          const state = readState()
+          if (state.agents.find(a => a.id === input.id)) {
+            json(res, 409, { error: 'Agent with this id already exists' }); return
+          }
+          state.agents.push({
+            id: input.id, name: input.name, role: input.role, team: input.team,
+            roomId: input.roomId, presence: input.presence || 'available',
+            focus: input.focus || '', criticalTask: input.criticalTask || false,
+            collaborationMode: input.collaborationMode || ''
+          })
+          if (!state.agentSeats) state.agentSeats = {}
+          state.agentSeats[input.id] = { xPct: 50, yPct: 50 }
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 201, { ok: true, id: input.id, source: 'file' })
+        })
+      }
+    } catch (e) { json(res, 400, { error: String(e) }) }
+    return
+  }
+
+  // PUT /api/office/agent/:id — full update of agent properties
+  if (agentMatch && req.method === 'PUT') {
+    try {
+      const input = await readBody(req)
+      if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        json(res, 400, { error: 'Body must be a JSON object' }); return
+      }
+      if (input.name && String(input.name).length > MAX_NAME_LEN) {
+        json(res, 400, { error: 'name too long' }); return
+      }
+      if (input.role && String(input.role).length > MAX_ROLE_LEN) {
+        json(res, 400, { error: 'role too long' }); return
+      }
+      if (input.focus && String(input.focus).length > MAX_FOCUS_LEN) {
+        json(res, 400, { error: 'focus too long' }); return
+      }
+      if (input.presence && !VALID_PRESENCE.includes(input.presence)) {
+        json(res, 400, { error: `Invalid presence. Must be one of: ${VALID_PRESENCE.join(', ')}` }); return
+      }
+      const agentId = agentMatch[1]
+      if (await postgresAvailable()) {
+        const exists = await runPsql(`select count(*) from office_agents where id = ${sqlString(agentId)};`)
+        if (parseInt(exists) === 0) {
+          json(res, 404, { error: 'Agent not found' }); return
+        }
+        const agentUpdates = []
+        if (input.name) agentUpdates.push(`name = ${sqlString(input.name)}`)
+        if (input.role) agentUpdates.push(`role = ${sqlString(input.role)}`)
+        if (input.team) agentUpdates.push(`team = ${sqlString(input.team)}`)
+        if (agentUpdates.length) {
+          await runPsql(`update office_agents set ${agentUpdates.join(', ')}, updated_at = now() where id = ${sqlString(agentId)};`)
+        }
+        const presenceUpdates = []
+        if (input.presence) presenceUpdates.push(`presence_state = ${sqlString(input.presence)}`, `effective_presence_state = ${sqlString(input.presence)}`)
+        if (typeof input.focus === 'string') presenceUpdates.push(`focus = ${sqlString(input.focus)}`)
+        if (typeof input.criticalTask === 'boolean') presenceUpdates.push(`critical_task = ${sqlBool(input.criticalTask)}`)
+        if (typeof input.collaborationMode === 'string') presenceUpdates.push(`collaboration_mode = ${sqlString(input.collaborationMode)}`)
+        if (presenceUpdates.length) {
+          await runPsql(`update office_presence set ${presenceUpdates.join(', ')}, updated_at = now() where agent_id = ${sqlString(agentId)};`)
+        }
+        if (input.roomId) {
+          await runPsql(`update office_world_entities set room_id = ${sqlString(input.roomId)}, updated_at = now() where agent_id = ${sqlString(agentId)};`)
+        }
+        await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'system', text: `Agent ${agentId} updated`, agentId })
+        json(res, 200, { ok: true, source: 'postgres' })
+      } else {
+        await withLock(() => {
+          const state = readState()
+          const agent = state.agents.find(a => a.id === agentId)
+          if (!agent) { json(res, 404, { error: 'Agent not found' }); return }
+          if (input.name) agent.name = input.name
+          if (input.role) agent.role = input.role
+          if (input.team) agent.team = input.team
+          if (input.roomId) agent.roomId = input.roomId
+          if (input.presence) agent.presence = input.presence
+          if (typeof input.focus === 'string') agent.focus = input.focus
+          if (typeof input.criticalTask === 'boolean') agent.criticalTask = input.criticalTask
+          if (typeof input.collaborationMode === 'string') agent.collaborationMode = input.collaborationMode
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 200, { ok: true, agent, source: 'file' })
+        })
+      }
+    } catch (e) { json(res, 400, { error: String(e) }) }
+    return
+  }
+
+  // DELETE /api/office/agent/:id — remove an agent
+  if (agentMatch && req.method === 'DELETE') {
+    try {
+      const agentId = agentMatch[1]
+      if (await postgresAvailable()) {
+        const exists = await runPsql(`select count(*) from office_agents where id = ${sqlString(agentId)};`)
+        if (parseInt(exists) === 0) {
+          json(res, 404, { error: 'Agent not found' }); return
+        }
+        await runPsql(`delete from office_assignments where target_agent_id = ${sqlString(agentId)};`)
+        await runPsql(`delete from office_world_entities where agent_id = ${sqlString(agentId)};`)
+        await runPsql(`delete from office_presence where agent_id = ${sqlString(agentId)};`)
+        await runPsql(`delete from office_agents where id = ${sqlString(agentId)};`)
+        await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'system', text: `Agent ${agentId} deleted` })
+        json(res, 200, { ok: true, source: 'postgres' })
+      } else {
+        await withLock(() => {
+          const state = readState()
+          const idx = state.agents.findIndex(a => a.id === agentId)
+          if (idx === -1) { json(res, 404, { error: 'Agent not found' }); return }
+          state.agents.splice(idx, 1)
+          if (state.agentSeats) delete state.agentSeats[agentId]
+          if (state.assignments) state.assignments = state.assignments.filter(a => a.targetAgentId !== agentId)
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+          json(res, 200, { ok: true, source: 'file' })
+        })
+      }
     } catch (e) { json(res, 400, { error: String(e) }) }
     return
   }

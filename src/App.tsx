@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react'
 import { type PresenceState, type Room } from './data'
-import { useOffice, type OfficeAgent } from './office-provider'
+import { useOffice, type OfficeAgent, type AgentCreateInput, type AgentUpdateInput } from './office-provider'
 import { characterSprites, getCharacterSprite, getSpriteAnimData, type CharacterSpriteSet, type SpriteAnimData } from './world'
 
 const OFFICE_MAP = '/assets/pixelart/Office Tileset/Office Designs/Office Level 4.png'
@@ -114,7 +114,11 @@ function AgentSprite({ agent, onClick, selected, hovered, onHover }: {
         ['--accent' as string]: color,
         ['--label-offset-y' as string]: `${spriteSet?.labelOffsetY ?? 34}px`
       }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${agent.name}, ${presenceLabels[agent.effectivePresence]}`}
       onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
     >
@@ -212,7 +216,11 @@ function RoomOverlay({ room, highlight, agentCount, onClick }: {
         width: `${room.zone.w}%`,
         height: `${room.zone.h}%`
       }}
+      role="button"
+      tabIndex={0}
+      aria-label={`${room.name}, ${agentCount} agent${agentCount !== 1 ? 's' : ''}`}
       onClick={onClick}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
     >
       <span className="room-label">{room.name}</span>
       {agentCount > 0 && <span className="room-count">{agentCount}</span>}
@@ -234,7 +242,7 @@ function RoomDetailCard({ room, agents, onClose }: {
           <h3>{room.name}</h3>
           <span className="room-detail-team">{room.team}</span>
         </div>
-        <button className="assign-close" onClick={onClose}>&times;</button>
+        <button className="assign-close" aria-label="Close" onClick={onClose}>&times;</button>
       </div>
       <p className="room-detail-purpose">{room.purpose}</p>
       {roomAgents.length > 0 ? (
@@ -282,23 +290,122 @@ function AssignmentForm({ targetAgentId, onClose }: { targetAgentId: string; onC
     <form className="assign-form" onSubmit={handleSubmit}>
       <div className="assign-form-head">
         <strong>Assign to {agent?.name ?? targetAgentId}</strong>
-        <button type="button" className="assign-close" onClick={onClose}>&times;</button>
+        <button type="button" className="assign-close" aria-label="Close" onClick={onClose}>&times;</button>
       </div>
-      <input ref={titleRef} name="title" placeholder="Task title" required className="assign-input" />
-      <textarea name="brief" placeholder="Brief description" rows={2} className="assign-input" />
+      <label htmlFor="assign-title" className="visually-hidden">Task title</label>
+      <input ref={titleRef} id="assign-title" name="title" placeholder="Task title" required aria-required="true" className="assign-input" />
+      <label htmlFor="assign-brief" className="visually-hidden">Brief description</label>
+      <textarea id="assign-brief" name="brief" placeholder="Brief description" rows={2} className="assign-input" />
       <div className="assign-row">
-        <select name="priority" className="assign-select" defaultValue="medium">
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-        </select>
-        <select name="routing" className="assign-select" defaultValue="agent_runtime">
-          <option value="agent_runtime">Agent runtime</option>
-          <option value="work_tracker">Work tracker</option>
-          <option value="both">Both</option>
-        </select>
+        <div>
+          <label htmlFor="assign-priority" className="visually-hidden">Priority</label>
+          <select id="assign-priority" name="priority" className="assign-select" defaultValue="medium">
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="assign-routing" className="visually-hidden">Routing target</label>
+          <select id="assign-routing" name="routing" className="assign-select" defaultValue="agent_runtime">
+            <option value="agent_runtime">Agent runtime</option>
+            <option value="work_tracker">Work tracker</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
       </div>
       <button type="submit" className="assign-submit">Queue assignment</button>
+    </form>
+  )
+}
+
+// ── Agent CRUD form ──────────────────────────────────
+function AgentForm({ agent, onClose }: { agent?: OfficeAgent; onClose: () => void }) {
+  const { createAgent, updateAgent, rooms } = useOffice()
+  const nameRef = useRef<HTMLInputElement>(null)
+  const isEdit = !!agent
+
+  useEffect(() => { nameRef.current?.focus() }, [])
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    const form = e.target as HTMLFormElement
+    const fd = new FormData(form)
+    if (isEdit) {
+      const input: AgentUpdateInput = {
+        name: fd.get('name') as string,
+        role: fd.get('role') as string,
+        team: fd.get('team') as string,
+        roomId: fd.get('roomId') as string,
+        presence: fd.get('presence') as PresenceState,
+        focus: fd.get('focus') as string,
+        criticalTask: fd.get('criticalTask') === 'on',
+        collaborationMode: fd.get('collaborationMode') as string,
+      }
+      await updateAgent(agent.id, input)
+    } else {
+      const input: AgentCreateInput = {
+        id: fd.get('id') as string,
+        name: fd.get('name') as string,
+        role: fd.get('role') as string,
+        team: fd.get('team') as string,
+        roomId: fd.get('roomId') as string,
+        presence: (fd.get('presence') as PresenceState) || 'available',
+        focus: fd.get('focus') as string,
+        criticalTask: fd.get('criticalTask') === 'on',
+        collaborationMode: fd.get('collaborationMode') as string,
+      }
+      await createAgent(input)
+    }
+    onClose()
+  }
+
+  return (
+    <form className="assign-form agent-form" onSubmit={handleSubmit}>
+      <div className="assign-form-head">
+        <strong>{isEdit ? `Edit ${agent.name}` : 'Add Agent'}</strong>
+        <button type="button" className="assign-close" aria-label="Close" onClick={onClose}>&times;</button>
+      </div>
+      {!isEdit && (
+        <>
+          <label htmlFor="agent-id" className="visually-hidden">Agent ID</label>
+          <input id="agent-id" name="id" placeholder="Agent ID (lowercase, hyphens)" required aria-required="true" pattern="[a-z0-9-]+" className="assign-input" />
+        </>
+      )}
+      <label htmlFor="agent-name" className="visually-hidden">Name</label>
+      <input ref={nameRef} id="agent-name" name="name" placeholder="Name" required aria-required="true" defaultValue={agent?.name ?? ''} className="assign-input" />
+      <label htmlFor="agent-role" className="visually-hidden">Role</label>
+      <input id="agent-role" name="role" placeholder="Role" required aria-required="true" defaultValue={agent?.role ?? ''} className="assign-input" />
+      <label htmlFor="agent-team" className="visually-hidden">Team</label>
+      <input id="agent-team" name="team" placeholder="Team" required aria-required="true" defaultValue={agent?.team ?? ''} className="assign-input" />
+      <div className="assign-row">
+        <div>
+          <label htmlFor="agent-room" className="visually-hidden">Room</label>
+          <select id="agent-room" name="roomId" className="assign-select" required aria-required="true" defaultValue={agent?.roomId ?? rooms[0]?.id ?? ''}>
+            {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="agent-presence" className="visually-hidden">Presence</label>
+          <select id="agent-presence" name="presence" className="assign-select" defaultValue={agent?.effectivePresence ?? 'available'}>
+            <option value="available">Available</option>
+            <option value="active">Active</option>
+            <option value="in_meeting">In meeting</option>
+            <option value="paused">Paused</option>
+            <option value="blocked">Blocked</option>
+            <option value="off_hours">Off hours</option>
+          </select>
+        </div>
+      </div>
+      <label htmlFor="agent-focus" className="visually-hidden">Focus</label>
+      <input id="agent-focus" name="focus" placeholder="Current focus" defaultValue={agent?.focus ?? ''} className="assign-input" />
+      <label htmlFor="agent-collab" className="visually-hidden">Collaboration mode</label>
+      <input id="agent-collab" name="collaborationMode" placeholder="Collaboration mode" defaultValue={agent?.collaborationMode ?? ''} className="assign-input" />
+      <label className="agent-form-checkbox">
+        <input type="checkbox" name="criticalTask" defaultChecked={agent?.criticalTask ?? false} />
+        <span>Critical task</span>
+      </label>
+      <button type="submit" className="assign-submit">{isEdit ? 'Save changes' : 'Create agent'}</button>
     </form>
   )
 }
@@ -306,10 +413,12 @@ function AssignmentForm({ targetAgentId, onClose }: { targetAgentId: string; onC
 // ── Main app ─────────────────────────────────────────
 export function App() {
   const office = useOffice()
-  const { agents, rooms, workdayPolicy, activity, assignments, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError } = office
+  const { agents, rooms, workdayPolicy, activity, assignments, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError, deleteAgent } = office
 
   const [mapScale, setMapScale] = useState(2)
   const [showAssignForm, setShowAssignForm] = useState(false)
+  const [showAgentForm, setShowAgentForm] = useState<'create' | 'edit' | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [sideTab, setSideTab] = useState<'roster' | 'activity' | 'tasks'>('roster')
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null)
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
@@ -364,6 +473,8 @@ export function App() {
       if (e.key === 'Escape') {
         selectAgent(null)
         setShowAssignForm(false)
+        setShowAgentForm(null)
+        setDeleteConfirm(null)
         setSelectedRoomId(null)
         return
       }
@@ -408,10 +519,13 @@ export function App() {
     selectAgent(selectedAgentId === agentId ? null : agentId)
     setSelectedRoomId(null)
     setShowAssignForm(false)
+    setShowAgentForm(null)
+    setDeleteConfirm(null)
   }
 
   return (
     <div className="office-world">
+      <a href="#main-content" className="skip-link">Skip to main content</a>
       {/* Header */}
       <header className="office-header">
         <div className="header-left">
@@ -429,12 +543,12 @@ export function App() {
         </div>
       </header>
 
-      <div className="office-layout">
+      <main id="main-content" className="office-layout">
         {/* Map viewport */}
         <div className="map-viewport">
           <div className="map-controls">
-            <button onClick={() => handleZoom(1)} title="Zoom in">+</button>
-            <button onClick={() => handleZoom(-1)} title="Zoom out">&minus;</button>
+            <button onClick={() => handleZoom(1)} title="Zoom in" aria-label="Zoom in">+</button>
+            <button onClick={() => handleZoom(-1)} title="Zoom out" aria-label="Zoom out">&minus;</button>
             <span className="zoom-label">{mapScale}x</span>
           </div>
           <div className="map-scroll" ref={mapScrollRef}>
@@ -467,8 +581,8 @@ export function App() {
         <aside className="side-panel">
           {/* Connection error banner */}
           {connectionError && (
-            <div className="connection-error">
-              <span className="connection-error-icon">&#x26A0;</span>
+            <div className="connection-error" role="alert">
+              <span className="connection-error-icon" aria-hidden="true">&#x26A0;</span>
               <span>{connectionError}</span>
             </div>
           )}
@@ -482,7 +596,7 @@ export function App() {
                 if (count === 0) return null
                 return (
                   <div key={state} className="presence-row">
-                    <span className="presence-dot" style={{ background: presenceColors[state] }} />
+                    <span className="presence-dot" aria-hidden="true" style={{ background: presenceColors[state] }} />
                     <span className="presence-name">{presenceLabels[state]}</span>
                     <span className="presence-count">{count}</span>
                   </div>
@@ -492,15 +606,16 @@ export function App() {
           </div>
 
           {/* Tab bar */}
-          <div className="side-tabs">
-            <button className={`side-tab ${sideTab === 'roster' ? 'active' : ''}`} onClick={() => setSideTab('roster')}>Agents</button>
-            <button className={`side-tab ${sideTab === 'activity' ? 'active' : ''}`} onClick={() => setSideTab('activity')}>Feed</button>
-            <button className={`side-tab ${sideTab === 'tasks' ? 'active' : ''}`} onClick={() => setSideTab('tasks')}>All Tasks{assignments.length > 0 ? ` (${assignments.length})` : ''}</button>
+          <div className="side-tabs" role="tablist">
+            <button className={`side-tab ${sideTab === 'roster' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'roster'} onClick={() => setSideTab('roster')}>Agents</button>
+            <button className={`side-tab ${sideTab === 'activity' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'activity'} onClick={() => setSideTab('activity')}>Feed</button>
+            <button className={`side-tab ${sideTab === 'tasks' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'tasks'} onClick={() => setSideTab('tasks')}>All Tasks{assignments.length > 0 ? ` (${assignments.length})` : ''}</button>
           </div>
 
           {/* Roster tab */}
           {sideTab === 'roster' && (
-            <div className="agent-roster">
+            <div className="agent-roster" role="tabpanel">
+              <button className="add-agent-btn" onClick={() => { setShowAgentForm('create'); selectAgent(null) }} aria-label="Add agent">+ Add Agent</button>
               {agents.map(agent => {
                 const color = presenceColors[agent.effectivePresence]
                 const room = rooms.find(r => r.id === agent.roomId)
@@ -527,11 +642,11 @@ export function App() {
 
           {/* Activity feed tab */}
           {sideTab === 'activity' && (
-            <div className="activity-feed">
+            <div className="activity-feed" role="tabpanel" aria-live="polite">
               {activity.length === 0 && <p className="feed-empty">No activity yet</p>}
               {activity.map(item => (
                 <div key={item.id} className={`feed-entry feed-${item.kind}`}>
-                  <span className="feed-icon">{activityIcons[item.kind] ?? '\u25CB'}</span>
+                  <span className="feed-icon" aria-hidden="true">{activityIcons[item.kind] ?? '\u25CB'}</span>
                   <div className="feed-body">
                     <span className="feed-text">{item.text}</span>
                     <span className="feed-time">{safeTime(item.createdAt)}</span>
@@ -543,7 +658,7 @@ export function App() {
 
           {/* Tasks tab */}
           {sideTab === 'tasks' && (
-            <div className="tasks-panel">
+            <div className="tasks-panel" role="tabpanel">
               {assignments.length === 0 && <p className="feed-empty">No queued tasks</p>}
               {assignments.map(a => {
                 const agent = agents.find(ag => ag.id === a.targetAgentId)
@@ -629,21 +744,42 @@ export function App() {
                   )}
                 </div>
               </div>
-              {!showAssignForm ? (
-                <button className="assign-btn" onClick={() => setShowAssignForm(true)}>
-                  Assign task
-                </button>
-              ) : (
+              {showAgentForm === 'edit' ? (
+                <AgentForm agent={selected} onClose={() => setShowAgentForm(null)} />
+              ) : showAssignForm ? (
                 <AssignmentForm targetAgentId={selected.id} onClose={() => setShowAssignForm(false)} />
+              ) : (
+                <div className="agent-actions">
+                  <button className="assign-btn" onClick={() => setShowAssignForm(true)}>
+                    Assign task
+                  </button>
+                  <div className="agent-crud-row">
+                    <button className="agent-edit-btn" onClick={() => setShowAgentForm('edit')}>Edit</button>
+                    {deleteConfirm === selected.id ? (
+                      <div className="delete-confirm">
+                        <span>Delete?</span>
+                        <button className="delete-yes" onClick={() => { deleteAgent(selected.id); setDeleteConfirm(null) }}>Yes</button>
+                        <button className="delete-no" onClick={() => setDeleteConfirm(null)}>No</button>
+                      </div>
+                    ) : (
+                      <button className="agent-delete-btn" onClick={() => setDeleteConfirm(selected.id)}>Delete</button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
+          )}
+
+          {/* Agent create form (no agent selected) */}
+          {showAgentForm === 'create' && !selected && (
+            <AgentForm onClose={() => setShowAgentForm(null)} />
           )}
 
           <div className="office-rules">
             <p>{workdayPolicy.pauseRule}</p>
           </div>
         </aside>
-      </div>
+      </main>
     </div>
   )
 }

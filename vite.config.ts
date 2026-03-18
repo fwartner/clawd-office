@@ -6,11 +6,17 @@ import { execFile } from 'node:child_process'
 
 // __dirname works here because Vite transpiles its config with esbuild
 const STATE_FILE = path.resolve(__dirname, 'state/office-snapshot.json')
-const LINEAR_BRIDGE = '/Users/fwartner/.openclaw/workspace/scripts/create_linear_task_and_dispatch.py'
+const LINEAR_BRIDGE = process.env.LINEAR_BRIDGE_PATH || path.resolve(__dirname, 'scripts/create_linear_task_and_dispatch.py')
 
 const MAX_BODY_SIZE = 1_048_576 // 1MB
+const MAX_TITLE_LEN = 200
+const MAX_BRIEF_LEN = 2000
+const MAX_FOCUS_LEN = 500
+const MAX_NAME_LEN = 100
+const MAX_ROLE_LEN = 200
 const VALID_PRESENCE = ['off_hours', 'available', 'active', 'in_meeting', 'paused', 'blocked']
 const AGENT_PATCH_FIELDS = ['presence', 'focus', 'roomId', 'criticalTask', 'collaborationMode']
+const AGENT_ID_RE = /^[a-z0-9-]+$/
 
 function readBody(req: import('http').IncomingMessage, limit: number = MAX_BODY_SIZE): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -197,6 +203,16 @@ function officeApiPlugin(): Plugin {
               res.end(JSON.stringify({ error: `Invalid priority. Must be: ${VALID_PRIORITY.join(', ')}` }))
               return
             }
+            if (String(input.taskTitle).length > MAX_TITLE_LEN) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'taskTitle too long' }))
+              return
+            }
+            if (input.taskBrief && String(input.taskBrief).length > MAX_BRIEF_LEN) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'taskBrief too long' }))
+              return
+            }
             const result = await runLinearBridge({
               targetAgentId: String(input.targetAgentId),
               taskTitle: String(input.taskTitle),
@@ -206,6 +222,139 @@ function officeApiPlugin(): Plugin {
             })
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({ ok: true, result }))
+          } catch (err) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: String(err) }))
+          }
+          return
+        }
+
+        // POST /api/office/agent — create a new agent
+        if (req.method === 'POST' && req.url === '/api/office/agent') {
+          try {
+            const input = JSON.parse(await readBody(req))
+            if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'Body must be a JSON object' }))
+              return
+            }
+            const required = ['id', 'name', 'role', 'team', 'roomId']
+            const missing = required.filter(f => !input[f])
+            if (missing.length > 0) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `Missing required fields: ${missing.join(', ')}` }))
+              return
+            }
+            if (!AGENT_ID_RE.test(input.id)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'id must be lowercase alphanumeric with hyphens only' }))
+              return
+            }
+            if (String(input.name).length > MAX_NAME_LEN) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'name too long' }))
+              return
+            }
+            if (input.presence && !VALID_PRESENCE.includes(input.presence)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `Invalid presence. Must be one of: ${VALID_PRESENCE.join(', ')}` }))
+              return
+            }
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              if (state.agents.find((a: { id: string }) => a.id === input.id)) {
+                res.statusCode = 409
+                res.end(JSON.stringify({ error: 'Agent with this id already exists' }))
+                return
+              }
+              state.agents.push({
+                id: input.id, name: input.name, role: input.role, team: input.team,
+                roomId: input.roomId, presence: input.presence || 'available',
+                focus: input.focus || '', criticalTask: input.criticalTask || false,
+                collaborationMode: input.collaborationMode || ''
+              })
+              if (!state.agentSeats) state.agentSeats = {}
+              state.agentSeats[input.id] = { xPct: 50, yPct: 50 }
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.statusCode = 201
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true, id: input.id }))
+            })
+          } catch (err) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: String(err) }))
+          }
+          return
+        }
+
+        // PUT /api/office/agent/:id — full update of agent properties
+        if (req.method === 'PUT' && agentMatch) {
+          try {
+            const input = JSON.parse(await readBody(req))
+            if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'Body must be a JSON object' }))
+              return
+            }
+            if (input.name && String(input.name).length > MAX_NAME_LEN) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: 'name too long' }))
+              return
+            }
+            if (input.presence && !VALID_PRESENCE.includes(input.presence)) {
+              res.statusCode = 400
+              res.end(JSON.stringify({ error: `Invalid presence. Must be one of: ${VALID_PRESENCE.join(', ')}` }))
+              return
+            }
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              const agent = state.agents.find((a: { id: string }) => a.id === agentMatch[1])
+              if (!agent) {
+                res.statusCode = 404
+                res.end(JSON.stringify({ error: 'Agent not found' }))
+                return
+              }
+              if (input.name) agent.name = input.name
+              if (input.role) agent.role = input.role
+              if (input.team) agent.team = input.team
+              if (input.roomId) agent.roomId = input.roomId
+              if (input.presence) agent.presence = input.presence
+              if (typeof input.focus === 'string') agent.focus = input.focus
+              if (typeof input.criticalTask === 'boolean') agent.criticalTask = input.criticalTask
+              if (typeof input.collaborationMode === 'string') agent.collaborationMode = input.collaborationMode
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true, agent }))
+            })
+          } catch (err) {
+            res.statusCode = 400
+            res.end(JSON.stringify({ error: String(err) }))
+          }
+          return
+        }
+
+        // DELETE /api/office/agent/:id — remove an agent
+        if (req.method === 'DELETE' && agentMatch) {
+          try {
+            const agentId = agentMatch[1]
+            await withLock(() => {
+              const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+              const idx = state.agents.findIndex((a: { id: string }) => a.id === agentId)
+              if (idx === -1) {
+                res.statusCode = 404
+                res.end(JSON.stringify({ error: 'Agent not found' }))
+                return
+              }
+              state.agents.splice(idx, 1)
+              if (state.agentSeats) delete state.agentSeats[agentId]
+              if (state.assignments) state.assignments = state.assignments.filter((a: { targetAgentId: string }) => a.targetAgentId !== agentId)
+              state.lastUpdatedAt = new Date().toISOString()
+              fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+              res.setHeader('Content-Type', 'application/json')
+              res.end(JSON.stringify({ ok: true }))
+            })
           } catch (err) {
             res.statusCode = 400
             res.end(JSON.stringify({ error: String(err) }))

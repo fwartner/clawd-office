@@ -7,6 +7,16 @@ export interface OfficeAgent extends AgentCard {
   characterId: string
 }
 
+export interface AgentCreateInput {
+  id: string; name: string; role: string; team: string; roomId: string
+  presence?: PresenceState; focus?: string; criticalTask?: boolean; collaborationMode?: string
+}
+
+export interface AgentUpdateInput {
+  name?: string; role?: string; team?: string; roomId?: string
+  presence?: PresenceState; focus?: string; criticalTask?: boolean; collaborationMode?: string
+}
+
 interface OfficeState {
   agents: OfficeAgent[]
   rooms: Room[]
@@ -27,6 +37,9 @@ interface OfficeState {
     priority: 'low' | 'medium' | 'high'
     routingTarget: 'agent_runtime' | 'work_tracker' | 'both'
   }) => void
+  createAgent: (input: AgentCreateInput) => Promise<boolean>
+  updateAgent: (id: string, input: AgentUpdateInput) => Promise<boolean>
+  deleteAgent: (id: string) => Promise<boolean>
 }
 
 const OfficeContext = createContext<OfficeState | null>(null)
@@ -362,6 +375,98 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     })
   }, [rawAgents])
 
+  const createAgent = useCallback(async (input: AgentCreateInput): Promise<boolean> => {
+    // Optimistic local update
+    const newAgent: AgentCard = {
+      id: input.id, name: input.name, role: input.role, team: input.team,
+      roomId: input.roomId, presence: input.presence ?? 'available',
+      focus: input.focus ?? '', criticalTask: input.criticalTask ?? false,
+      collaborationMode: input.collaborationMode ?? ''
+    }
+    setRawAgents(current => [...current, newAgent])
+    setCurrentSeats(current => ({ ...current, [input.id]: { xPct: 50, yPct: 50 } }))
+    addActivity({ kind: 'system', text: `Agent ${input.name} created` })
+    try {
+      const res = await fetch('/api/office/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }))
+        // Revert
+        setRawAgents(current => current.filter(a => a.id !== input.id))
+        setCurrentSeats(current => { const next = { ...current }; delete next[input.id]; return next })
+        addActivity({ kind: 'system', text: `Failed to create agent: ${err.error}` })
+        return false
+      }
+      return true
+    } catch {
+      setRawAgents(current => current.filter(a => a.id !== input.id))
+      setCurrentSeats(current => { const next = { ...current }; delete next[input.id]; return next })
+      addActivity({ kind: 'system', text: 'Failed to create agent — network error' })
+      return false
+    }
+  }, [])
+
+  const updateAgent = useCallback(async (id: string, input: AgentUpdateInput): Promise<boolean> => {
+    // Save old state for revert
+    const oldAgent = rawAgents.find(a => a.id === id)
+    if (!oldAgent) return false
+    // Optimistic update
+    setRawAgents(current =>
+      current.map(a => a.id === id ? { ...a, ...input } as AgentCard : a)
+    )
+    addActivity({ kind: 'system', text: `Agent ${oldAgent.name} updated`, agentId: id })
+    try {
+      const res = await fetch(`/api/office/agent/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })
+      if (!res.ok) {
+        setRawAgents(current => current.map(a => a.id === id ? oldAgent : a))
+        addActivity({ kind: 'system', text: 'Failed to update agent — server error' })
+        return false
+      }
+      return true
+    } catch {
+      setRawAgents(current => current.map(a => a.id === id ? oldAgent : a))
+      addActivity({ kind: 'system', text: 'Failed to update agent — network error' })
+      return false
+    }
+  }, [rawAgents])
+
+  const deleteAgent = useCallback(async (id: string): Promise<boolean> => {
+    const oldAgents = rawAgents
+    const oldSeats = currentSeats
+    const oldAssignments = assignments
+    const agent = rawAgents.find(a => a.id === id)
+    // Optimistic removal
+    setRawAgents(current => current.filter(a => a.id !== id))
+    setCurrentSeats(current => { const next = { ...current }; delete next[id]; return next })
+    setAssignments(current => current.filter(a => a.targetAgentId !== id))
+    setSelectedAgentId(current => current === id ? null : current)
+    addActivity({ kind: 'system', text: `Agent ${agent?.name ?? id} deleted` })
+    try {
+      const res = await fetch(`/api/office/agent/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        setRawAgents(oldAgents)
+        setCurrentSeats(oldSeats)
+        setAssignments(oldAssignments)
+        addActivity({ kind: 'system', text: 'Failed to delete agent — server error' })
+        return false
+      }
+      return true
+    } catch {
+      setRawAgents(oldAgents)
+      setCurrentSeats(oldSeats)
+      setAssignments(oldAssignments)
+      addActivity({ kind: 'system', text: 'Failed to delete agent — network error' })
+      return false
+    }
+  }, [rawAgents, currentSeats, assignments])
+
   const value = useMemo<OfficeState>(() => ({
     agents,
     rooms: currentRooms,
@@ -375,8 +480,11 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     dataSource,
     connectionError,
     selectAgent: setSelectedAgentId,
-    assignTask
-  }), [agents, currentRooms, currentSeats, currentPolicy, assignments, activity, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask])
+    assignTask,
+    createAgent,
+    updateAgent,
+    deleteAgent
+  }), [agents, currentRooms, currentSeats, currentPolicy, assignments, activity, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask, createAgent, updateAgent, deleteAgent])
 
   return <OfficeContext.Provider value={value}>{children}</OfficeContext.Provider>
 }

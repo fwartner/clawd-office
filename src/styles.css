@@ -355,8 +355,100 @@ button { font: inherit; }
 /* Office rules footer */
 .office-rules { padding: 12px 14px; font-size: 11px; color: var(--text2); line-height: 1.5; margin-top: auto; flex-shrink: 0; }
 
+/* ── Visually hidden (a11y) ───────────────────────── */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+
+/* ── Skip link ───────────────────────────────────── */
+.skip-link {
+  position: absolute; left: -9999px; top: auto;
+  z-index: 999; padding: 8px 16px;
+  background: #95d8ff; color: #0b0d12; font-weight: bold; text-decoration: none;
+}
+.skip-link:focus { left: 8px; top: 8px; }
+
+/* ── Focus indicators ────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #95d8ff;
+  outline-offset: 2px;
+}
+button:focus:not(:focus-visible) { outline: none; }
+
+/* ── Add agent button ────────────────────────────── */
+.add-agent-btn {
+  display: block; width: calc(100% - 20px); margin: 8px 10px 4px; padding: 7px;
+  font-family: var(--font); font-size: 8px; letter-spacing: 0.06em;
+  background: #1a2e3e; border: 1px solid #3a5a68; color: #95d8ff; cursor: pointer;
+  transition: all 0.15s; text-align: center;
+}
+.add-agent-btn:hover { background: #1e3a4e; border-color: #5080a0; }
+
+/* ── Agent CRUD buttons ──────────────────────────── */
+.agent-actions { margin-top: 10px; }
+.agent-crud-row { display: flex; gap: 6px; margin-top: 6px; }
+.agent-edit-btn, .agent-delete-btn {
+  flex: 1; padding: 6px; font-family: var(--font); font-size: 7px;
+  letter-spacing: 0.06em; cursor: pointer; transition: all 0.15s;
+}
+.agent-edit-btn {
+  background: #1e2a3e; border: 1px solid #3a4a68; color: #95d8ff;
+}
+.agent-edit-btn:hover { background: #243250; border-color: #5070a0; }
+.agent-delete-btn {
+  background: #2e1a1a; border: 1px solid #6a3a3a; color: #ff8b8b;
+}
+.agent-delete-btn:hover { background: #3e2222; border-color: #8a4a4a; }
+.delete-confirm { display: flex; align-items: center; gap: 6px; flex: 1; font-size: 11px; color: #ff8b8b; }
+.delete-yes, .delete-no {
+  padding: 4px 8px; font-family: var(--font); font-size: 7px; cursor: pointer;
+}
+.delete-yes { background: #3e1a1a; border: 1px solid #8a3a3a; color: #ff8b8b; }
+.delete-no { background: #1e2a3e; border: 1px solid #3a4a68; color: var(--text2); }
+
+/* ── Agent form checkbox ─────────────────────────── */
+.agent-form-checkbox {
+  display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text2); cursor: pointer;
+}
+.agent-form-checkbox input { accent-color: #95d8ff; }
+
 /* ── Responsive ───────────────────────────────────── */
+
+/* Tablet */
 @media (max-width: 900px) {
   .office-layout { flex-direction: column; }
-  .side-panel { width: 100%; max-height: 42vh; border-left: none; border-top: 2px solid #23293a; }
+  .side-panel { width: 100%; max-height: 50vh; border-left: none; border-top: 2px solid #23293a; }
 }
+
+/* Phone landscape */
+@media (max-width: 600px) {
+  .office-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+  .office-title { font-size: 10px; }
+  .header-policy { display: none; }
+  .map-scroll { padding: 8px; }
+  .side-panel { max-height: 55vh; }
+  .detail-card { margin: 6px; padding: 8px; }
+  .assign-form { gap: 4px; }
+  .assign-row { flex-direction: column; }
+}
+
+/* Phone portrait */
+@media (max-width: 400px) {
+  .office-title { font-size: 8px; }
+  .berlin-clock { font-size: 8px; }
+  .side-tab { font-size: 7px; padding: 6px 2px; }
+  .side-panel { max-height: 60vh; }
+}
+
+/* Touch target sizing */
+.map-controls button { min-width: 44px; min-height: 44px; }
+.side-tab { min-height: 44px; }
+.assign-close { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+.roster-card { min-height: 44px; }
+
+/* Prevent horizontal overflow */
+body { overflow-x: hidden; }
+
+/* Responsive font scaling */
+.office-title { font-size: clamp(8px, 2vw, 12px); }
