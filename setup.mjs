@@ -36,7 +36,7 @@ const c = {
   blue: '\x1b[34m',
 }
 
-const SKIP_INTERACTIVE = process.argv.includes('--yes') || process.argv.includes('-y')
+const SKIP_INTERACTIVE = process.argv.includes('--yes') || process.argv.includes('-y') || !!process.env.CI
 
 // ── Readline helper ─────────────────────────────────
 let rl
