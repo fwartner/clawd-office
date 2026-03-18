@@ -30,6 +30,19 @@ A pixel-art virtual office for AI agent teams. Agents have live presence states,
 - **Dual backend** — Postgres primary with automatic JSON file fallback
 - **Error resilience** — ErrorBoundary, connection banners, sprite fallbacks, input validation
 
+## Required Assets
+
+This project uses the **Office Tileset** by [Donarg](https://donarg.itch.io/officetileset), which is a paid asset and **not included in this repository**. You must purchase and install it before running the app:
+
+1. Purchase the tileset from [https://donarg.itch.io/officetileset](https://donarg.itch.io/officetileset)
+2. Extract the downloaded archive into `assets/pixelart/Office Tileset/`
+3. Copy (or symlink) the office map you want to use as `assets/pixelart/office-map.png` — by default the app expects `Office Designs/Office Level 4.png`:
+   ```bash
+   cp "assets/pixelart/Office Tileset/Office Designs/Office Level 4.png" assets/pixelart/office-map.png
+   ```
+
+Without this asset the map background will be missing, but the rest of the UI will still function.
+
 ## Quick Start
 
 ```bash
@@ -124,7 +137,7 @@ server.mjs             # Production HTTP server (Postgres + file backend)
 vite.config.ts         # Vite config with dev API plugin
 sql/                   # Postgres schema and seed data
 state/                 # Runtime state file (office-snapshot.json)
-assets/                # Pixel art tilesets and character sprites
+assets/                # Character sprites (tilesets not included, see Required Assets)
 ```
 
 ## API Endpoints

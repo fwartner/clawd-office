@@ -21,6 +21,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Paid assets — must be purchased separately
+assets/pixelart/Office Tileset/
+
 # Agent identity / runtime
 .claude/
 .openclaw/

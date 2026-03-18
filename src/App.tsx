@@ -5,7 +5,7 @@ import { characterSprites, getCharacterSprite, getSpriteAnimData, type Character
 import { WelcomeOnboarding } from './WelcomeOnboarding'
 import { SettingsPanel } from './SettingsPanel'
 
-const OFFICE_MAP = '/assets/pixelart/Office Tileset/Office Designs/Office Level 4.png'
+const OFFICE_MAP = '/assets/pixelart/office-map.png'
 const MAP_NATIVE_W = 640
 const MAP_NATIVE_H = 800
 
