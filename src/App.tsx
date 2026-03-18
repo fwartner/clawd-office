@@ -623,25 +623,21 @@ export function App() {
   return (
     <div className="office-world">
       <a href="#main-content" className="skip-link">Skip to main content</a>
-      {/* Header */}
-      <header className="office-header">
-        <div className="header-left">
-          <h1 className="office-title">{officeSettings.officeName || 'Clawd Office'}</h1>
-          <span className={`office-status ${withinWorkday ? 'on' : 'off'}`}>
-            {withinWorkday ? 'Open' : 'Closed'}
-          </span>
-          <span className={`office-status ${dataSource === 'live' ? 'on' : 'off'}`}>
-            {dataSource === 'live' ? 'Live' : 'Seed'}
-          </span>
-        </div>
-        <div className="header-right">
-          <span className="berlin-clock">{berlinTimeLabel} Berlin</span>
-          <span className="header-policy">{workdayPolicy.days} {workdayPolicy.hours}</span>
-        </div>
-      </header>
+
+      {/* Floating status overlay */}
+      <div className="map-status">
+        <h1 className="office-title">{officeSettings.officeName || 'Clawd Office'}</h1>
+        <span className={`office-status ${withinWorkday ? 'on' : 'off'}`}>
+          {withinWorkday ? 'Open' : 'Closed'}
+        </span>
+        <span className={`office-status ${dataSource === 'live' ? 'on' : 'off'}`}>
+          {dataSource === 'live' ? 'Live' : 'Seed'}
+        </span>
+        <span className="berlin-clock">{berlinTimeLabel}</span>
+      </div>
 
       <main id="main-content" className="office-layout">
-        {/* Map viewport */}
+        {/* Map viewport — fills entire screen */}
         <div className="map-viewport">
           <div className="map-controls">
             <button onClick={() => handleZoom(1)} title="Zoom in" aria-label="Zoom in">+</button>
@@ -674,9 +670,26 @@ export function App() {
             </div>
           </div>
         </div>
+      </main>
 
-        {/* Side panel */}
-        <aside className="side-panel">
+      {/* Bottom sheet */}
+      <div
+        ref={sheetRef}
+        className={`bottom-sheet snap-${sheetSnap} ${isDragging ? 'dragging' : ''}`}
+        role="complementary"
+        aria-label="Office controls"
+      >
+        <div
+          className="sheet-handle"
+          onPointerDown={handleDragStart}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
+        >
+          <div className="sheet-handle-bar" />
+        </div>
+
+        <div className="sheet-body">
           {/* Connection error banner */}
           {connectionError && (
             <div className="connection-error" role="alert">
@@ -909,11 +922,9 @@ export function App() {
             <AgentForm onClose={() => setShowAgentForm(null)} />
           )}
 
-          <div className="office-rules">
-            <p>{workdayPolicy.pauseRule}</p>
-          </div>
-        </aside>
-      </main>
+        </div>
+      </div>
+
       {agents.length === 0 && dataSource !== 'seed' && <WelcomeOnboarding />}
     </div>
   )
