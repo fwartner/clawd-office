@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
-import { agents as seedAgents, rooms as seedRooms, agentSeats as seedSeats, workdayPolicy as seedPolicy, type AgentCard, type PresenceState, type Room, type WorkdayPolicy } from './data'
+import { agents as seedAgents, rooms as seedRooms, agentSeats as seedSeats, workdayPolicy as seedPolicy, defaultSettings, type AgentCard, type PresenceState, type Room, type WorkdayPolicy, type OfficeSettings, type RoomUpdateInput } from './data'
 import { characterSprites, worldEntities, type ActivityItem, type AssignmentRecord } from './world'
 
 export interface OfficeAgent extends AgentCard {
@@ -22,6 +22,7 @@ interface OfficeState {
   rooms: Room[]
   agentSeats: Record<string, { xPct: number; yPct: number }>
   workdayPolicy: WorkdayPolicy
+  officeSettings: OfficeSettings
   assignments: AssignmentRecord[]
   activity: ActivityItem[]
   selectedAgentId: string | null
@@ -40,6 +41,8 @@ interface OfficeState {
   createAgent: (input: AgentCreateInput) => Promise<boolean>
   updateAgent: (id: string, input: AgentUpdateInput) => Promise<boolean>
   deleteAgent: (id: string) => Promise<boolean>
+  updateSettings: (patch: Partial<OfficeSettings> & { workdayPolicy?: Partial<WorkdayPolicy> }) => Promise<boolean>
+  updateRoom: (id: string, input: RoomUpdateInput) => Promise<boolean>
 }
 
 const OfficeContext = createContext<OfficeState | null>(null)
@@ -119,6 +122,7 @@ interface ApiSnapshot {
   rooms: Room[]
   agentSeats: Record<string, { xPct: number; yPct: number }>
   workdayPolicy: WorkdayPolicy
+  settings?: OfficeSettings
   activity?: ActivityItem[]
   assignments?: AssignmentRecord[]
   source: string
@@ -155,6 +159,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
   const [currentRooms, setCurrentRooms] = useState<Room[]>(seedRooms)
   const [currentSeats, setCurrentSeats] = useState(seedSeats)
   const [currentPolicy, setCurrentPolicy] = useState<WorkdayPolicy>(seedPolicy)
+  const [officeSettings, setOfficeSettings] = useState<OfficeSettings>(defaultSettings)
   const [dataSource, setDataSource] = useState<'seed' | 'live'>('seed')
   const [connectionError, setConnectionError] = useState<string | null>(null)
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
@@ -195,6 +200,9 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
         setCurrentRooms(data.rooms)
         setCurrentSeats(data.agentSeats)
         setCurrentPolicy(data.workdayPolicy)
+        if (data.settings) {
+          setOfficeSettings(prev => ({ ...defaultSettings, ...prev, ...data.settings }))
+        }
         if (data.activity && data.activity.length > 0) {
           setActivity(data.activity)
         }
@@ -468,11 +476,74 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     }
   }, [rawAgents, currentSeats, assignments])
 
+  const updateSettings = useCallback(async (patch: Partial<OfficeSettings> & { workdayPolicy?: Partial<WorkdayPolicy> }): Promise<boolean> => {
+    const oldSettings = officeSettings
+    const oldPolicy = currentPolicy
+    // Optimistic update
+    if (patch.officeName !== undefined || patch.theme) {
+      setOfficeSettings(prev => ({
+        ...prev,
+        ...(patch.officeName !== undefined ? { officeName: patch.officeName } : {}),
+        ...(patch.theme ? { theme: { ...prev.theme, ...patch.theme } } : {})
+      }))
+    }
+    if (patch.workdayPolicy) {
+      setCurrentPolicy(prev => ({ ...prev, ...patch.workdayPolicy }))
+    }
+    try {
+      const res = await fetch('/api/office/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      })
+      if (!res.ok) {
+        setOfficeSettings(oldSettings)
+        setCurrentPolicy(oldPolicy)
+        addActivity({ kind: 'system', text: 'Failed to update settings — server error' })
+        return false
+      }
+      addActivity({ kind: 'system', text: 'Office settings updated' })
+      return true
+    } catch {
+      setOfficeSettings(oldSettings)
+      setCurrentPolicy(oldPolicy)
+      addActivity({ kind: 'system', text: 'Failed to update settings — network error' })
+      return false
+    }
+  }, [officeSettings, currentPolicy])
+
+  const updateRoom = useCallback(async (id: string, input: RoomUpdateInput): Promise<boolean> => {
+    const oldRooms = currentRooms
+    // Optimistic update
+    setCurrentRooms(prev =>
+      prev.map(r => r.id === id ? { ...r, ...input } : r)
+    )
+    try {
+      const res = await fetch(`/api/office/room/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input)
+      })
+      if (!res.ok) {
+        setCurrentRooms(oldRooms)
+        addActivity({ kind: 'system', text: 'Failed to update room — server error' })
+        return false
+      }
+      addActivity({ kind: 'system', text: `Room updated` })
+      return true
+    } catch {
+      setCurrentRooms(oldRooms)
+      addActivity({ kind: 'system', text: 'Failed to update room — network error' })
+      return false
+    }
+  }, [currentRooms])
+
   const value = useMemo<OfficeState>(() => ({
     agents,
     rooms: currentRooms,
     agentSeats: currentSeats,
     workdayPolicy: currentPolicy,
+    officeSettings,
     assignments,
     activity,
     selectedAgentId,
@@ -484,8 +555,10 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     assignTask,
     createAgent,
     updateAgent,
-    deleteAgent
-  }), [agents, currentRooms, currentSeats, currentPolicy, assignments, activity, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask, createAgent, updateAgent, deleteAgent])
+    deleteAgent,
+    updateSettings,
+    updateRoom
+  }), [agents, currentRooms, currentSeats, currentPolicy, officeSettings, assignments, activity, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask, createAgent, updateAgent, deleteAgent, updateSettings, updateRoom])
 
   return <OfficeContext.Provider value={value}>{children}</OfficeContext.Provider>
 }

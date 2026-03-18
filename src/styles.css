@@ -434,6 +434,35 @@ button:focus:not(:focus-visible) { outline: none; }
   margin-bottom: 16px; line-height: 1.5;
 }
 
+/* ── Settings panel ──────────────────────────────── */
+.settings-panel { padding: 8px 10px; flex: 1; overflow-y: auto; }
+.settings-section { border-bottom: 1px solid rgba(255,255,255,0.06); }
+.settings-section summary {
+  font-family: var(--font); font-size: 8px; color: var(--text2);
+  padding: 12px 0; cursor: pointer; letter-spacing: 0.06em;
+  list-style: none; display: flex; justify-content: space-between;
+}
+.settings-section summary::after { content: '+'; }
+.settings-section[open] summary::after { content: '\2212'; }
+.settings-section-body { padding: 0 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.settings-label { font-size: 10px; color: var(--text2); margin-bottom: 2px; }
+.settings-color-row { display: flex; align-items: center; gap: 8px; }
+.settings-color-input {
+  width: 32px; height: 24px; border: 1px solid var(--border); background: none; cursor: pointer;
+  padding: 0;
+}
+.settings-color-label { font-size: 11px; flex: 1; }
+.settings-color-hex { font-size: 10px; color: var(--text2); font-family: var(--font); }
+.danger-zone { border-top: 1px solid #6a3a3a44; margin-top: 12px; padding-top: 12px; }
+
+/* Room edit list */
+.room-edit-card {
+  padding: 8px; background: #181d2a; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 6px;
+}
+.room-edit-head { display: flex; justify-content: space-between; align-items: center; }
+.room-edit-name { font-size: 12px; font-weight: bold; }
+.room-edit-team { font-size: 10px; color: var(--text2); }
+
 /* ── Responsive ───────────────────────────────────── */
 
 /* Tablet */

@@ -133,6 +133,19 @@ function generateSeedSnapshot() {
       { id: 'signal-room', name: 'Signal Room', team: 'Ops', purpose: 'Status, reporting, and operational visibility', agents: [], zone: { x: 62, y: 60, w: 36, h: 38 } }
     ],
     agentSeats: {},
+    settings: {
+      officeName: 'Clawd Office',
+      theme: {
+        presenceColors: {
+          off_hours: '#8792a8',
+          available: '#95d8ff',
+          active: '#78f7b5',
+          in_meeting: '#c39bff',
+          paused: '#ffd479',
+          blocked: '#ff8b8b'
+        }
+      }
+    },
     workdayPolicy: {
       timezone: 'Europe/Berlin',
       days: 'Monday-Friday',

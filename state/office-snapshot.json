@@ -205,6 +205,19 @@
       "createdAt": "2026-03-18T09:52:47.935Z"
     }
   ],
+  "settings": {
+    "officeName": "Clawd Office",
+    "theme": {
+      "presenceColors": {
+        "off_hours": "#8792a8",
+        "available": "#95d8ff",
+        "active": "#78f7b5",
+        "in_meeting": "#c39bff",
+        "paused": "#ffd479",
+        "blocked": "#ff8b8b"
+      }
+    }
+  },
   "source": "file",
   "lastUpdatedAt": "2026-03-18T09:52:57.680Z"
 }

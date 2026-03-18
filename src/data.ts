@@ -38,11 +38,43 @@ export interface WorkdayPolicy {
   sharedPlaceRule: string
 }
 
+export interface ThemeSettings {
+  presenceColors: Record<PresenceState, string>
+}
+
+export interface OfficeSettings {
+  officeName: string
+  theme: ThemeSettings
+}
+
+export interface RoomUpdateInput {
+  name?: string
+  team?: string
+  purpose?: string
+}
+
+export const defaultPresenceColors: Record<PresenceState, string> = {
+  off_hours: '#8792a8',
+  available: '#95d8ff',
+  active: '#78f7b5',
+  in_meeting: '#c39bff',
+  paused: '#ffd479',
+  blocked: '#ff8b8b'
+}
+
+export const defaultSettings: OfficeSettings = {
+  officeName: 'Clawd Office',
+  theme: {
+    presenceColors: { ...defaultPresenceColors }
+  }
+}
+
 export interface OfficeSnapshot {
   agents: AgentCard[]
   rooms: Room[]
   agentSeats: Record<string, { xPct: number; yPct: number }>
   workdayPolicy: WorkdayPolicy
+  settings?: OfficeSettings
   source: 'seed' | 'file' | 'postgres'
   lastUpdatedAt: string
 }

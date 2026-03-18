@@ -1,21 +1,13 @@
 import { useState, useEffect, useCallback, useRef, type FormEvent } from 'react'
-import { type PresenceState, type Room } from './data'
+import { type PresenceState, type Room, defaultPresenceColors } from './data'
 import { useOffice, type OfficeAgent, type AgentCreateInput, type AgentUpdateInput } from './office-provider'
 import { characterSprites, getCharacterSprite, getSpriteAnimData, type CharacterSpriteSet, type SpriteAnimData } from './world'
 import { WelcomeOnboarding } from './WelcomeOnboarding'
+import { SettingsPanel } from './SettingsPanel'
 
 const OFFICE_MAP = '/assets/pixelart/Office Tileset/Office Designs/Office Level 4.png'
 const MAP_NATIVE_W = 640
 const MAP_NATIVE_H = 800
-
-const presenceColors: Record<PresenceState, string> = {
-  off_hours: '#8792a8',
-  available: '#95d8ff',
-  active: '#78f7b5',
-  in_meeting: '#c39bff',
-  paused: '#ffd479',
-  blocked: '#ff8b8b'
-}
 
 const presenceLabels: Record<PresenceState, string> = {
   off_hours: 'Off hours',
@@ -84,8 +76,9 @@ function SpeechBubble({ text, color }: { text: string; color: string }) {
 }
 
 // ── Agent sprite on the map ──────────────────────────
-function AgentSprite({ agent, onClick, selected, hovered, onHover }: {
+function AgentSprite({ agent, presenceColors, onClick, selected, hovered, onHover }: {
   agent: OfficeAgent
+  presenceColors: Record<PresenceState, string>
   onClick: () => void
   selected: boolean
   hovered: boolean
@@ -231,9 +224,10 @@ function RoomOverlay({ room, highlight, agentCount, onClick }: {
 }
 
 // ── Room detail card (sidebar) ───────────────────────
-function RoomDetailCard({ room, agents, onClose }: {
+function RoomDetailCard({ room, agents, presenceColors, onClose }: {
   room: Room
   agents: OfficeAgent[]
+  presenceColors: Record<PresenceState, string>
   onClose: () => void
 }) {
   const roomAgents = agents.filter(a => a.roomId === room.id)
@@ -415,13 +409,15 @@ function AgentForm({ agent, onClose }: { agent?: OfficeAgent; onClose: () => voi
 // ── Main app ─────────────────────────────────────────
 export function App() {
   const office = useOffice()
-  const { agents, rooms, workdayPolicy, activity, assignments, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError, deleteAgent } = office
+  const { agents, rooms, workdayPolicy, officeSettings, activity, assignments, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError, deleteAgent } = office
+
+  const presenceColors: Record<PresenceState, string> = officeSettings.theme?.presenceColors ?? defaultPresenceColors
 
   const [mapScale, setMapScale] = useState(2)
   const [showAssignForm, setShowAssignForm] = useState(false)
   const [showAgentForm, setShowAgentForm] = useState<'create' | 'edit' | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
-  const [sideTab, setSideTab] = useState<'roster' | 'activity' | 'tasks'>('roster')
+  const [sideTab, setSideTab] = useState<'roster' | 'activity' | 'tasks' | 'settings'>('roster')
   const [hoveredAgent, setHoveredAgent] = useState<string | null>(null)
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null)
 
@@ -531,7 +527,7 @@ export function App() {
       {/* Header */}
       <header className="office-header">
         <div className="header-left">
-          <h1 className="office-title">Clawd Office</h1>
+          <h1 className="office-title">{officeSettings.officeName || 'Clawd Office'}</h1>
           <span className={`office-status ${withinWorkday ? 'on' : 'off'}`}>
             {withinWorkday ? 'Open' : 'Closed'}
           </span>
@@ -569,6 +565,7 @@ export function App() {
                 <AgentSprite
                   key={agent.id}
                   agent={agent}
+                  presenceColors={presenceColors}
                   onClick={() => handleAgentClick(agent.id)}
                   selected={selectedAgentId === agent.id}
                   hovered={hoveredAgent === agent.id}
@@ -612,6 +609,7 @@ export function App() {
             <button className={`side-tab ${sideTab === 'roster' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'roster'} onClick={() => setSideTab('roster')}>Agents</button>
             <button className={`side-tab ${sideTab === 'activity' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'activity'} onClick={() => setSideTab('activity')}>Feed</button>
             <button className={`side-tab ${sideTab === 'tasks' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'tasks'} onClick={() => setSideTab('tasks')}>All Tasks{assignments.length > 0 ? ` (${assignments.length})` : ''}</button>
+            <button className={`side-tab ${sideTab === 'settings' ? 'active' : ''}`} role="tab" aria-selected={sideTab === 'settings'} onClick={() => setSideTab('settings')}>Settings</button>
           </div>
 
           {/* Roster tab */}
@@ -683,9 +681,12 @@ export function App() {
             </div>
           )}
 
+          {/* Settings tab */}
+          {sideTab === 'settings' && <SettingsPanel />}
+
           {/* Room detail card */}
           {clickedRoom && !selected && (
-            <RoomDetailCard room={clickedRoom} agents={agents} onClose={() => setSelectedRoomId(null)} />
+            <RoomDetailCard room={clickedRoom} agents={agents} presenceColors={presenceColors} onClose={() => setSelectedRoomId(null)} />
           )}
 
           {/* Agent detail card */}

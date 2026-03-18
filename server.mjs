@@ -659,6 +659,75 @@ const server = http.createServer(async (req, res) => {
     return
   }
 
+  // PATCH /api/office/settings — update office settings
+  if (url.pathname === '/api/office/settings' && req.method === 'PATCH') {
+    try {
+      const raw = await readBody(req)
+      if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        json(res, 400, { error: 'Body must be a JSON object' }); return
+      }
+      await withLock(() => {
+        const state = readState()
+        if (!state.settings) state.settings = {}
+        if (typeof raw.officeName === 'string') {
+          state.settings.officeName = raw.officeName.slice(0, MAX_NAME_LEN)
+        }
+        if (raw.theme && typeof raw.theme === 'object') {
+          if (!state.settings.theme) state.settings.theme = {}
+          if (raw.theme.presenceColors && typeof raw.theme.presenceColors === 'object') {
+            if (!state.settings.theme.presenceColors) state.settings.theme.presenceColors = {}
+            for (const key of VALID_PRESENCE) {
+              if (typeof raw.theme.presenceColors[key] === 'string' && /^#[0-9a-fA-F]{6}$/.test(raw.theme.presenceColors[key])) {
+                state.settings.theme.presenceColors[key] = raw.theme.presenceColors[key]
+              }
+            }
+          }
+        }
+        if (raw.workdayPolicy && typeof raw.workdayPolicy === 'object') {
+          if (!state.workdayPolicy) state.workdayPolicy = {}
+          if (typeof raw.workdayPolicy.timezone === 'string') state.workdayPolicy.timezone = raw.workdayPolicy.timezone.slice(0, 100)
+          if (typeof raw.workdayPolicy.days === 'string') state.workdayPolicy.days = raw.workdayPolicy.days.slice(0, 100)
+          if (typeof raw.workdayPolicy.hours === 'string') state.workdayPolicy.hours = raw.workdayPolicy.hours.slice(0, 100)
+          if (typeof raw.workdayPolicy.pauseRule === 'string') state.workdayPolicy.pauseRule = raw.workdayPolicy.pauseRule.slice(0, MAX_BRIEF_LEN)
+          if (typeof raw.workdayPolicy.sharedPlaceRule === 'string') state.workdayPolicy.sharedPlaceRule = raw.workdayPolicy.sharedPlaceRule.slice(0, MAX_BRIEF_LEN)
+        }
+        state.lastUpdatedAt = new Date().toISOString()
+        writeState(state)
+        json(res, 200, { ok: true, settings: state.settings })
+      })
+    } catch (e) {
+      console.error('Error handling PATCH /api/office/settings', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
+    return
+  }
+
+  // PUT /api/office/room/:id — update room metadata
+  const roomMatch = url.pathname.match(/^\/api\/office\/room\/([a-z0-9-]+)$/)
+  if (roomMatch && req.method === 'PUT') {
+    try {
+      const input = await readBody(req)
+      if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        json(res, 400, { error: 'Body must be a JSON object' }); return
+      }
+      await withLock(() => {
+        const state = readState()
+        const room = state.rooms.find(r => r.id === roomMatch[1])
+        if (!room) { json(res, 404, { error: 'Room not found' }); return }
+        if (typeof input.name === 'string') room.name = input.name.slice(0, MAX_NAME_LEN)
+        if (typeof input.team === 'string') room.team = input.team.slice(0, MAX_ROLE_LEN)
+        if (typeof input.purpose === 'string') room.purpose = input.purpose.slice(0, MAX_BRIEF_LEN)
+        state.lastUpdatedAt = new Date().toISOString()
+        writeState(state)
+        json(res, 200, { ok: true, room })
+      })
+    } catch (e) {
+      console.error('Error handling PUT /api/office/room/:id', e)
+      json(res, 400, { error: 'Invalid request body' })
+    }
+    return
+  }
+
   if (url.pathname === '/api/office/activity' && req.method === 'POST') {
     try {
       const entry = await readBody(req)

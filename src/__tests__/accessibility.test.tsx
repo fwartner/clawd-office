@@ -81,7 +81,7 @@ describe('Accessibility', () => {
     expect(tablist).toBeInTheDocument()
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.length).toBe(3)
+    expect(tabs.length).toBe(4)
   })
 
   it('active tab has aria-selected=true', async () => {
