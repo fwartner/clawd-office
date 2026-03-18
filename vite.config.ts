@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
+import { registerAgent, unregisterAgent, dispatchTask, getAllAgentStatuses, startTaskQueue, shutdownAll } from './agent-runtime.mjs'
 
 // __dirname works here because Vite transpiles its config with esbuild
 const STATE_FILE = path.resolve(__dirname, 'state/office-snapshot.json')
@@ -76,6 +77,97 @@ function withLock(fn: () => void) {
   return writeLock
 }
 
+function createStateCallbacks() {
+  return {
+    onStart(assignmentId: string) {
+      withLock(() => {
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+        if (!state.assignments) state.assignments = []
+        const assignment = state.assignments.find((a: { id: string }) => a.id === assignmentId)
+        if (!assignment) return
+        assignment.status = 'active'
+        assignment.updatedAt = new Date().toISOString()
+        // Update agent presence
+        const agent = state.agents.find((a: { id: string }) => a.id === assignment.targetAgentId)
+        if (agent) {
+          agent.presence = 'active'
+          agent.focus = `Working on: ${assignment.taskTitle}`
+        }
+        // Add activity
+        if (!state.activity) state.activity = []
+        state.activity.unshift({
+          id: `act-${Date.now()}`,
+          kind: 'assignment',
+          text: `${agent?.name ?? assignment.targetAgentId} started working on "${assignment.taskTitle}"`,
+          agentId: assignment.targetAgentId,
+          createdAt: new Date().toISOString()
+        })
+        state.activity = state.activity.slice(0, 100)
+        state.lastUpdatedAt = new Date().toISOString()
+        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+      })
+    },
+    onComplete(assignmentId: string, result: string) {
+      withLock(() => {
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+        if (!state.assignments) state.assignments = []
+        const assignment = state.assignments.find((a: { id: string }) => a.id === assignmentId)
+        if (!assignment) return
+        assignment.status = 'done'
+        assignment.result = result
+        assignment.resultAction = 'visible'
+        assignment.updatedAt = new Date().toISOString()
+        // Update agent presence
+        const agent = state.agents.find((a: { id: string }) => a.id === assignment.targetAgentId)
+        if (agent) {
+          agent.presence = 'available'
+          agent.focus = `Completed: ${assignment.taskTitle}`
+        }
+        // Add activity
+        if (!state.activity) state.activity = []
+        state.activity.unshift({
+          id: `act-${Date.now()}`,
+          kind: 'assignment',
+          text: `${agent?.name ?? assignment.targetAgentId} completed "${assignment.taskTitle}"`,
+          agentId: assignment.targetAgentId,
+          createdAt: new Date().toISOString()
+        })
+        state.activity = state.activity.slice(0, 100)
+        state.lastUpdatedAt = new Date().toISOString()
+        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+      })
+    },
+    onError(assignmentId: string, error: string) {
+      withLock(() => {
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+        if (!state.assignments) state.assignments = []
+        const assignment = state.assignments.find((a: { id: string }) => a.id === assignmentId)
+        if (!assignment) return
+        assignment.status = 'blocked'
+        assignment.updatedAt = new Date().toISOString()
+        // Update agent presence
+        const agent = state.agents.find((a: { id: string }) => a.id === assignment.targetAgentId)
+        if (agent) {
+          agent.presence = 'blocked'
+          agent.focus = `Error: ${error.slice(0, 100)}`
+        }
+        // Add activity
+        if (!state.activity) state.activity = []
+        state.activity.unshift({
+          id: `act-${Date.now()}`,
+          kind: 'system',
+          text: `Task "${assignment.taskTitle}" failed: ${error.slice(0, 200)}`,
+          agentId: assignment.targetAgentId,
+          createdAt: new Date().toISOString()
+        })
+        state.activity = state.activity.slice(0, 100)
+        state.lastUpdatedAt = new Date().toISOString()
+        fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+      })
+    }
+  }
+}
+
 function officeApiPlugin(): Plugin {
   return {
     name: 'office-api',
@@ -87,6 +179,7 @@ function officeApiPlugin(): Plugin {
             const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
             if (!state.assignments) state.assignments = []
             if (!state.activity) state.activity = []
+            state.agentRuntimeStatuses = getAllAgentStatuses()
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify(state))
           } catch {
@@ -272,6 +365,11 @@ function officeApiPlugin(): Plugin {
               }
             }
 
+            // Dispatch to agent runtime if routing includes it
+            if (['agent_runtime', 'both'].includes(assignment.routingTarget)) {
+              dispatchTask(assignment.targetAgentId, assignment, createStateCallbacks())
+            }
+
             res.setHeader('Content-Type', 'application/json')
             res.end(JSON.stringify({ ok: true, assignment, bridgeResult }))
           } catch (err) {
@@ -332,6 +430,7 @@ function officeApiPlugin(): Plugin {
               res.statusCode = 201
               res.setHeader('Content-Type', 'application/json')
               res.end(JSON.stringify({ ok: true, id: input.id }))
+              registerAgent(input.id, input.name, input.role)
             })
           } catch (err) {
             res.statusCode = 400
@@ -391,6 +490,7 @@ function officeApiPlugin(): Plugin {
         if (req.method === 'DELETE' && agentMatch) {
           try {
             const agentId = agentMatch[1]
+            unregisterAgent(agentId)
             await withLock(() => {
               const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
               const idx = state.agents.findIndex((a: { id: string }) => a.id === agentId)
@@ -569,6 +669,48 @@ function officeApiPlugin(): Plugin {
 
         next()
       })
+
+      // Startup recovery: register existing agents and start queue processor
+      try {
+        const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+        if (state.agents) {
+          for (const agent of state.agents) {
+            registerAgent(agent.id, agent.name, agent.role)
+          }
+        }
+        // Re-queue any active assignments (process died on restart)
+        if (state.assignments) {
+          let changed = false
+          for (const a of state.assignments) {
+            if (a.status === 'active') {
+              a.status = 'queued'
+              a.updatedAt = new Date().toISOString()
+              changed = true
+            }
+          }
+          if (changed) {
+            state.lastUpdatedAt = new Date().toISOString()
+            fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2))
+          }
+        }
+      } catch {
+        console.warn('[agent-runtime] No state file found for startup recovery')
+      }
+
+      // Start task queue processor
+      startTaskQueue(5000, () => {
+        try {
+          const state = JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'))
+          return (state.assignments || []).filter((a: { status: string; routingTarget: string }) =>
+            a.status === 'queued' && ['agent_runtime', 'both'].includes(a.routingTarget)
+          )
+        } catch { return [] }
+      }, (assignment: { targetAgentId: string }) => {
+        dispatchTask(assignment.targetAgentId, assignment, createStateCallbacks())
+      })
+
+      // Cleanup on server close
+      server.httpServer?.on('close', () => { shutdownAll() })
     }
   }
 }

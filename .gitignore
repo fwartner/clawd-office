@@ -24,5 +24,6 @@ npm-debug.log*
 # Agent identity / runtime
 .claude/
 .openclaw/
+.superpowers/
 tmp/
 .setup-done

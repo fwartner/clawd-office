@@ -471,7 +471,7 @@ function AgentForm({ agent, onClose }: { agent?: OfficeAgent; onClose: () => voi
 // ── Main app ─────────────────────────────────────────
 export function App() {
   const office = useOffice()
-  const { agents, rooms, workdayPolicy, officeSettings, activity, assignments, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError, deleteAgent } = office
+  const { agents, rooms, workdayPolicy, officeSettings, activity, assignments, agentRuntimeStatuses, selectedAgentId, selectAgent, berlinTimeLabel, withinWorkday, dataSource, connectionError, deleteAgent } = office
 
   const presenceColors: Record<PresenceState, string> = officeSettings.theme?.presenceColors ?? defaultPresenceColors
 
@@ -862,6 +862,15 @@ export function App() {
                 <dt>Focus</dt><dd>{selected.focus}</dd>
                 <dt>Mode</dt><dd>{selected.collaborationMode}</dd>
                 <dt>Priority</dt><dd>{selected.criticalTask ? 'Critical' : 'Non-critical'}</dd>
+                <dt>Runtime</dt>
+                <dd>
+                  {(() => {
+                    const rs = agentRuntimeStatuses.find(s => s.agentId === selected.id)
+                    if (!rs) return <span style={{ color: '#888' }}>Offline</span>
+                    if (rs.busy) return <span style={{ color: '#4a9eff' }}>Working...</span>
+                    return <span style={{ color: '#4ade80' }}>Connected</span>
+                  })()}
+                </dd>
               </dl>
               <div className="agent-livefeed">
                 <div className="agent-livefeed-head">

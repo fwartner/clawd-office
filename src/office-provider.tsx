@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from 'react'
 import { agents as seedAgents, rooms as seedRooms, agentSeats as seedSeats, workdayPolicy as seedPolicy, defaultSettings, type AgentCard, type PresenceState, type Room, type WorkdayPolicy, type OfficeSettings, type RoomUpdateInput } from './data'
 import { characterSprites, worldEntities, type ActivityItem, type AssignmentRecord } from './world'
+import type { AgentRuntimeStatus } from './office-state'
 
 export interface OfficeAgent extends AgentCard {
   effectivePresence: PresenceState
@@ -25,6 +26,7 @@ interface OfficeState {
   officeSettings: OfficeSettings
   assignments: AssignmentRecord[]
   activity: ActivityItem[]
+  agentRuntimeStatuses: AgentRuntimeStatus[]
   selectedAgentId: string | null
   berlinTimeLabel: string
   withinWorkday: boolean
@@ -128,6 +130,7 @@ interface ApiSnapshot {
   settings?: OfficeSettings
   activity?: ActivityItem[]
   assignments?: AssignmentRecord[]
+  agentRuntimeStatuses?: AgentRuntimeStatus[]
   source: string
   lastUpdatedAt: string
 }
@@ -169,9 +172,6 @@ function mergeAssignments(current: AssignmentRecord[], incoming: AssignmentRecor
 
 const BASE_POLL_MS = 4000
 const MAX_POLL_MS = 30000
-const TASK_PICKUP_DELAY_MS  = 3_000   // queued → routed
-const TASK_ACTIVE_DELAY_MS  = 8_000   // routed → active
-const TASK_PROCESS_INTERVAL = 2_000   // check interval
 const MAX_ASSIGNMENTS       = 25
 const MAX_ACTIVITY_ITEMS    = 50
 
@@ -188,6 +188,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
   const [withinWorkday, setWithinWorkday] = useState(isWithinWorkday(seedPolicy.timezone))
   const [agents, setAgents] = useState<OfficeAgent[]>(() => buildAgents(seedAgents, isWithinWorkday(seedPolicy.timezone)))
   const [assignments, setAssignments] = useState<AssignmentRecord[]>([])
+  const [agentRuntimeStatuses, setAgentRuntimeStatuses] = useState<AgentRuntimeStatus[]>([])
   const [activity, setActivity] = useState<ActivityItem[]>(INITIAL_ACTIVITY)
   const wasLive = useRef(false)
   const consecutiveFailures = useRef(0)
@@ -229,6 +230,9 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
         }
         if (data.assignments) {
           setAssignments(current => mergeAssignments(current, data.assignments ?? []))
+        }
+        if (data.agentRuntimeStatuses) {
+          setAgentRuntimeStatuses(data.agentRuntimeStatuses)
         }
         if (!wasLive.current) {
           wasLive.current = true
@@ -272,8 +276,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer)
   }, [rawAgents, currentPolicy.timezone])
 
-  // ── Helpers: push activity + patch agent (used by task processor & assignTask) ──
-  const processedTransitions = useRef<Set<string>>(new Set())
+  // ── Helpers: push activity + patch agent ──
 
   function addActivity(entry: { kind: ActivityItem['kind']; text: string; agentId?: string }) {
     const item: ActivityItem = {
@@ -309,51 +312,6 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ status }),
     }).catch(err => { if (import.meta.env.DEV) console.warn('[office]', err) })
   }
-
-  // ── Task processing: progress assignments through their lifecycle ──
-  // Uses a ref-based dedup set so each transition fires exactly once,
-  // even when the poll re-delivers old server state.
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setAssignments(current => {
-        let changed = false
-        const updated = current.map(a => {
-          const age = Date.now() - new Date(a.createdAt).getTime()
-
-          // queued → routed (agent picks up the task, ~3s)
-          if (a.status === 'queued' && age > TASK_PICKUP_DELAY_MS) {
-            const key = `${a.id}:routed`
-            if (!processedTransitions.current.has(key)) {
-              processedTransitions.current.add(key)
-              const name = rawAgents.find(ag => ag.id === a.targetAgentId)?.name ?? a.targetAgentId
-              addActivity({ kind: 'system', text: `${name} picked up "${a.taskTitle}"`, agentId: a.targetAgentId })
-              patchAgent(a.targetAgentId, { presence: 'active', focus: `Working on: ${a.taskTitle}` })
-              patchAssignmentOnServer(a.id, 'routed')
-            }
-            changed = true
-            return { ...a, status: 'routed' as const }
-          }
-
-          // routed → active (agent begins work, ~8s)
-          if (a.status === 'routed' && age > TASK_ACTIVE_DELAY_MS) {
-            const key = `${a.id}:active`
-            if (!processedTransitions.current.has(key)) {
-              processedTransitions.current.add(key)
-              const name = rawAgents.find(ag => ag.id === a.targetAgentId)?.name ?? a.targetAgentId
-              addActivity({ kind: 'assignment', text: `${name} is actively working on "${a.taskTitle}"`, agentId: a.targetAgentId })
-              patchAssignmentOnServer(a.id, 'active')
-            }
-            changed = true
-            return { ...a, status: 'active' as const }
-          }
-
-          return a
-        })
-        return changed ? updated : current
-      })
-    }, TASK_PROCESS_INTERVAL)
-    return () => clearInterval(timer)
-  }, [rawAgents])
 
   const assignTask: OfficeState['assignTask'] = useCallback((input) => {
     // Validate input
@@ -625,6 +583,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     officeSettings,
     assignments,
     activity,
+    agentRuntimeStatuses,
     selectedAgentId,
     berlinTimeLabel,
     withinWorkday,
@@ -640,7 +599,7 @@ export function OfficeProvider({ children }: { children: ReactNode }) {
     deleteAgent,
     updateSettings,
     updateRoom
-  }), [agents, currentRooms, currentSeats, currentPolicy, officeSettings, assignments, activity, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask, completeTask, saveResult, dismissResult, createAgent, updateAgent, deleteAgent, updateSettings, updateRoom])
+  }), [agents, currentRooms, currentSeats, currentPolicy, officeSettings, assignments, activity, agentRuntimeStatuses, selectedAgentId, berlinTimeLabel, withinWorkday, dataSource, connectionError, assignTask, completeTask, saveResult, dismissResult, createAgent, updateAgent, deleteAgent, updateSettings, updateRoom])
 
   return <OfficeContext.Provider value={value}>{children}</OfficeContext.Provider>
 }

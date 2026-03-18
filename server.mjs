@@ -11,6 +11,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { registerAgent, unregisterAgent, dispatchTask, getAllAgentStatuses, startTaskQueue, shutdownAll } from './agent-runtime.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, 'dist')
@@ -332,6 +333,91 @@ async function appendActivityInPostgres(entry) {
   `)
 }
 
+function createServerStateCallbacks() {
+  return {
+    async onStart(assignmentId) {
+      if (await postgresAvailable()) {
+        await runPsql(`update office_assignments set status = 'active', updated_at = now() where id = ${sqlString(assignmentId)};`)
+        const row = await runPsql(`select target_agent_id, task_title from office_assignments where id = ${sqlString(assignmentId)};`)
+        if (row) {
+          const [agentId, taskTitle] = row.split('|')
+          await runPsql(`update office_presence set presence_state = 'active', effective_presence_state = 'active', focus = ${sqlString('Working on: ' + taskTitle)}, updated_at = now() where agent_id = ${sqlString(agentId)};`)
+          await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'assignment', text: `${agentId} started working on "${taskTitle}"`, agentId })
+        }
+      } else {
+        await withLock(() => {
+          const state = readState()
+          if (!state.assignments) state.assignments = []
+          const assignment = state.assignments.find(a => a.id === assignmentId)
+          if (!assignment) return
+          assignment.status = 'active'
+          const agent = state.agents.find(a => a.id === assignment.targetAgentId)
+          if (agent) { agent.presence = 'active'; agent.focus = `Working on: ${assignment.taskTitle}` }
+          if (!state.activity) state.activity = []
+          state.activity.unshift({ id: `act-${Date.now()}`, kind: 'assignment', text: `${agent?.name ?? assignment.targetAgentId} started working on "${assignment.taskTitle}"`, agentId: assignment.targetAgentId, createdAt: new Date().toISOString() })
+          state.activity = state.activity.slice(0, 100)
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+        })
+      }
+    },
+    async onComplete(assignmentId, result) {
+      if (await postgresAvailable()) {
+        await runPsql(`update office_assignments set status = 'done', result = ${sqlString(result)}, updated_at = now() where id = ${sqlString(assignmentId)};`)
+        const row = await runPsql(`select target_agent_id, task_title from office_assignments where id = ${sqlString(assignmentId)};`)
+        if (row) {
+          const [agentId, taskTitle] = row.split('|')
+          await runPsql(`update office_presence set presence_state = 'available', effective_presence_state = 'available', focus = ${sqlString('Completed: ' + taskTitle)}, updated_at = now() where agent_id = ${sqlString(agentId)};`)
+          await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'assignment', text: `${agentId} completed "${taskTitle}"`, agentId })
+        }
+      } else {
+        await withLock(() => {
+          const state = readState()
+          if (!state.assignments) state.assignments = []
+          const assignment = state.assignments.find(a => a.id === assignmentId)
+          if (!assignment) return
+          assignment.status = 'done'
+          assignment.result = result
+          assignment.resultAction = 'visible'
+          const agent = state.agents.find(a => a.id === assignment.targetAgentId)
+          if (agent) { agent.presence = 'available'; agent.focus = `Completed: ${assignment.taskTitle}` }
+          if (!state.activity) state.activity = []
+          state.activity.unshift({ id: `act-${Date.now()}`, kind: 'assignment', text: `${agent?.name ?? assignment.targetAgentId} completed "${assignment.taskTitle}"`, agentId: assignment.targetAgentId, createdAt: new Date().toISOString() })
+          state.activity = state.activity.slice(0, 100)
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+        })
+      }
+    },
+    async onError(assignmentId, error) {
+      if (await postgresAvailable()) {
+        await runPsql(`update office_assignments set status = 'blocked', updated_at = now() where id = ${sqlString(assignmentId)};`)
+        const row = await runPsql(`select target_agent_id, task_title from office_assignments where id = ${sqlString(assignmentId)};`)
+        if (row) {
+          const [agentId, taskTitle] = row.split('|')
+          await runPsql(`update office_presence set presence_state = 'blocked', effective_presence_state = 'blocked', focus = ${sqlString('Error: ' + error.slice(0, 100))}, updated_at = now() where agent_id = ${sqlString(agentId)};`)
+          await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'system', text: `Task "${taskTitle}" failed: ${error.slice(0, 200)}`, agentId })
+        }
+      } else {
+        await withLock(() => {
+          const state = readState()
+          if (!state.assignments) state.assignments = []
+          const assignment = state.assignments.find(a => a.id === assignmentId)
+          if (!assignment) return
+          assignment.status = 'blocked'
+          const agent = state.agents.find(a => a.id === assignment.targetAgentId)
+          if (agent) { agent.presence = 'blocked'; agent.focus = `Error: ${error.slice(0, 100)}` }
+          if (!state.activity) state.activity = []
+          state.activity.unshift({ id: `act-${Date.now()}`, kind: 'system', text: `Task "${assignment.taskTitle}" failed: ${error.slice(0, 200)}`, agentId: assignment.targetAgentId, createdAt: new Date().toISOString() })
+          state.activity = state.activity.slice(0, 100)
+          state.lastUpdatedAt = new Date().toISOString()
+          writeState(state)
+        })
+      }
+    }
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://localhost:${PORT}`)
 
@@ -351,12 +437,14 @@ const server = http.createServer(async (req, res) => {
       }
       if (!state.assignments) state.assignments = []
       if (!state.activity) state.activity = []
+      state.agentRuntimeStatuses = getAllAgentStatuses()
       json(res, 200, state)
     } catch {
       try {
         const state = readState()
         if (!state.assignments) state.assignments = []
         if (!state.activity) state.activity = []
+        state.agentRuntimeStatuses = getAllAgentStatuses()
         json(res, 200, state)
       } catch { json(res, 500, { error: 'Office state unavailable' }) }
     }
@@ -515,6 +603,16 @@ const server = http.createServer(async (req, res) => {
         }
       }
 
+      // Dispatch to agent runtime if routing includes it
+      if (['agent_runtime', 'both'].includes(input.routingTarget)) {
+        dispatchTask(String(input.targetAgentId), {
+          id: persisted.id,
+          taskTitle: String(input.taskTitle),
+          taskBrief: input.taskBrief ? String(input.taskBrief) : '',
+          targetAgentId: String(input.targetAgentId),
+        }, createServerStateCallbacks())
+      }
+
       json(res, 200, { ok: true, persisted, bridgeResult })
     } catch (e) {
       console.error('Error handling POST /api/office/assign', e)
@@ -604,6 +702,7 @@ const server = http.createServer(async (req, res) => {
         await runPsql(`insert into office_presence (agent_id, presence_state, effective_presence_state, critical_task, focus, collaboration_mode) values (${sqlString(input.id)}, ${sqlString(input.presence || 'available')}, ${sqlString(input.presence || 'available')}, ${sqlBool(input.criticalTask || false)}, ${sqlString(input.focus || '')}, ${sqlString(input.collaborationMode || '')});`)
         await runPsql(`insert into office_world_entities (agent_id, room_id, anchor_x_pct, anchor_y_pct) values (${sqlString(input.id)}, ${sqlString(input.roomId)}, 50, 50);`)
         await appendActivityInPostgres({ id: `act-${Date.now()}`, kind: 'system', text: `Agent ${input.name} created`, agentId: input.id })
+        registerAgent(input.id, input.name, input.role)
         json(res, 201, { ok: true, id: input.id, source: 'postgres' })
       } else {
         await withLock(() => {
@@ -621,6 +720,7 @@ const server = http.createServer(async (req, res) => {
           state.agentSeats[input.id] = { xPct: 50, yPct: 50 }
           state.lastUpdatedAt = new Date().toISOString()
           writeState(state)
+          registerAgent(input.id, input.name, input.role)
           json(res, 201, { ok: true, id: input.id, source: 'file' })
         })
       }
@@ -705,6 +805,7 @@ const server = http.createServer(async (req, res) => {
   if (agentMatch && req.method === 'DELETE') {
     try {
       const agentId = agentMatch[1]
+      unregisterAgent(agentId)
       if (await postgresAvailable()) {
         const exists = await runPsql(`select count(*) from office_agents where id = ${sqlString(agentId)};`)
         if (parseInt(exists) === 0) {
@@ -865,14 +966,61 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found')
 })
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
   console.log(`Clawd Office server running at http://0.0.0.0:${PORT}`)
   console.log(`Primary backend: Postgres (${DB_NAME})`)
   console.log(`Fallback state file: ${STATE_FILE}`)
+
+  // Startup recovery: register existing agents
+  try {
+    let agents = []
+    let assignments = []
+    if (await postgresAvailable()) {
+      const raw = await runPsql(`select id, name, role from office_agents where office_visible = true;`)
+      if (raw) {
+        for (const line of raw.split('\n')) {
+          const [id, name, role] = line.split('|')
+          if (id) registerAgent(id.trim(), name?.trim() || id, role?.trim() || '')
+        }
+      }
+      // Re-queue active assignments
+      await runPsql(`update office_assignments set status = 'queued', updated_at = now() where status = 'active';`)
+    } else {
+      const state = readState()
+      agents = state.agents || []
+      assignments = state.assignments || []
+      for (const agent of agents) {
+        registerAgent(agent.id, agent.name, agent.role)
+      }
+      let changed = false
+      for (const a of assignments) {
+        if (a.status === 'active') { a.status = 'queued'; changed = true }
+      }
+      if (changed) {
+        state.lastUpdatedAt = new Date().toISOString()
+        writeState(state)
+      }
+    }
+  } catch (err) {
+    console.warn('[agent-runtime] Startup recovery error:', err.message)
+  }
+
+  // Start task queue processor
+  startTaskQueue(5000, () => {
+    try {
+      const state = readState()
+      return (state.assignments || []).filter(a =>
+        a.status === 'queued' && ['agent_runtime', 'both'].includes(a.routingTarget)
+      )
+    } catch { return [] }
+  }, (assignment) => {
+    dispatchTask(assignment.targetAgentId, assignment, createServerStateCallbacks())
+  })
 })
 
 function shutdown(signal) {
   console.log(`\n${signal} received — shutting down gracefully`)
+  shutdownAll()
   server.close(() => {
     console.log('Server closed')
     process.exit(0)

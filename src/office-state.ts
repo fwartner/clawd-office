@@ -80,6 +80,13 @@ export interface OfficeDecisionRecord {
   createdAt: string
 }
 
+export interface AgentRuntimeStatus {
+  agentId: string
+  registered: boolean
+  busy: boolean
+  currentAssignmentId: string | null
+}
+
 export interface OfficeStateSnapshot {
   agents: OfficeAgentRecord[]
   rooms: OfficeRoomRecord[]
