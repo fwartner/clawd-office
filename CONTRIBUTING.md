@@ -7,11 +7,13 @@ Thank you for your interest in contributing! Here's how to get started.
 ```bash
 git clone https://github.com/fwartner/clawd-office.git
 cd clawd-office
-npm install
+npm install    # runs the setup wizard automatically
 npm run dev
 ```
 
-The dev server starts at `http://localhost:4173`.
+The setup wizard guides you through backend and configuration choices. The dev server starts at `http://localhost:4173`.
+
+To re-run setup: `npm run setup:force`
 
 ## Making Changes
 

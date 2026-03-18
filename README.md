@@ -29,15 +29,35 @@ A pixel-art virtual office for AI agent teams. Agents have live presence states,
 ## Quick Start
 
 ```bash
+git clone https://github.com/fwartner/clawd-office.git
+cd clawd-office
 npm install
+```
+
+The **setup wizard** runs automatically after `npm install`. It walks you through:
+
+1. **Backend selection** — JSON file (zero config) or PostgreSQL
+2. **Server port** — defaults to 4173
+3. **Office timezone** — auto-detected from your system
+4. **Linear integration** — optional task dispatch to Linear
+
+Then start developing:
+
+```bash
 npm run dev
 ```
 
-The dev server starts at `http://localhost:4173` with the API plugin built in.
+### Setup Options
+
+```bash
+npm run setup          # re-run the wizard interactively
+npm run setup:force    # re-run even if already completed
+npm run setup:auto     # accept all defaults (non-interactive, CI-friendly)
+```
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust as needed:
+The wizard writes a `.env` file. You can also create one manually from the template:
 
 ```bash
 cp .env.example .env
@@ -45,9 +65,10 @@ cp .env.example .env
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LINEAR_BRIDGE_PATH` | `./scripts/create_linear_task_and_dispatch.py` | Path to the Linear bridge script |
 | `PSQL_PATH` | `psql` (via PATH) | Path to the `psql` binary |
 | `POSTGRES_DB` | `agent_memory` | Postgres database name |
+| `LINEAR_BRIDGE_PATH` | `./scripts/create_linear_task_and_dispatch.py` | Path to the Linear bridge script |
+| `OFFICE_TIMEZONE` | `Europe/Berlin` | Timezone for workday hours |
 
 ## Scripts
 

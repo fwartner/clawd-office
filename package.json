@@ -1,15 +1,20 @@
 {
-  "name": "forge-virtual-office",
-  "version": "0.1.0",
-  "description": "Pixel-art virtual office for the OpenClaw AI agent team — live presence, room navigation, and task assignment in a retro-styled shared workspace.",
+  "name": "clawd-office",
+  "version": "0.2.0",
+  "description": "Pixel-art virtual office for AI agent teams — live presence, room navigation, agent CRUD, and task assignment in a retro-styled shared workspace.",
   "type": "module",
   "license": "MIT",
   "scripts": {
+    "setup": "node setup.mjs",
+    "setup:force": "node setup.mjs --force",
+    "setup:auto": "node setup.mjs --yes",
+    "postinstall": "node setup.mjs",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "serve": "node server.mjs",
     "serve:build": "tsc -b && vite build && node server.mjs",
+    "start": "npm run serve:build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
